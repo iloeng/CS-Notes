@@ -664,23 +664,329 @@ https://xgboost.readthedocs.io/en/stable/tutorials/learning_to_rank.html
 * [Constrastive Learning: MoCo and SimCLR](https://mp.weixin.qq.com/s/v5p9QA3vDl-WTF3-7shp4g)
 * batch size比较重要，增加batch size可以增加正负样本对的数量
 
-#### InfoNCE
+#### Contrastive Training Objectives
+
+* In early versions of loss functions for contrastive learning, only one positive and one negative sample are involved. The trend in recent training objectives is to **include multiple positive and negative pairs in one batch**.
+
+##### Common Setup
+
+* 分布与假设：设数据边缘分布为 $$p_{\text{data}}(x)$$，正样本对分布为 $$p_{\text{pos}}(x, x^+)$$，满足：
+  * 对称：$$\forall x, x^+\!,\; p_{\text{pos}}(x, x^+) = p_{\text{pos}}(x^+, x)$$。
+  * 边缘匹配：$$\forall x\!,\; \int p_{\text{pos}}(x, x^+)\,\mathrm{d}x^+ = p_{\text{data}}(x)$$。
+* 目标：学习 L2 归一化编码器 $$f(x)$$，用内积衡量相似度；每个锚点采样 $$M$$ 个负例 $$\{x_i^-\}_{i=1}^M\overset{\text{i.i.d.}}\sim p_{\text{data}}$$。
+* 对比学习损失（InfoNCE 形式）：
+  $$\mathcal{L} = -\mathbb{E}\Bigg[\log\frac{\exp\big(f(x)^\top f(x^+)/\tau\big)}{\exp\big(f(x)^\top f(x^+)/\tau\big) + \sum_{i=1}^{M} \exp\big(f(x)^\top f(x_i^-)/\tau\big)}\Bigg]$$
+* 近似分解（负例数量大，分母由负例主导；用 LLN 近似）：
+  $$\mathcal{L}\;\approx\; -\frac{1}{\tau}\,\mathbb{E}_{(x,x^+)\sim p_{\text{pos}}}\big[f(x)^\top f(x^+)\big]\; +\; \mathbb{E}_{x\sim p_{\text{data}}}\Big[\log\, \mathbb{E}_{x^-\sim p_{\text{data}}}\big[\exp\big(f(x)^\top f(x^-)/\tau\big)\big]\Big] \; + \; \text{const}$$
+  * 前项是 Alignment（拉近正对）；后项是 Uniformity（鼓励在球面上均匀，抑制塌缩）。
+* 参考：Understanding Contrastive Representation Learning through Alignment and Uniformity — https://arxiv.org/abs/2005.10242 （Wang & Isola, 2020）
+
+##### Contrastive Loss
+
+**Contrastive loss** (Chopra et al. 2005) is one of the earliest training objectives used for deep metric learning in a contrastive fashion.
+
+Given a list of input samples \(\{\mathbf{x}_i\}\), each has a corresponding label \(y_i \in \{1, \dots, L\}\) among L classes. We would like to learn a function \(f_\theta(.) : \mathcal{X} \rightarrow \mathbb{R}^d\) that encodes \(x_i\) into an embedding vector such that examples from the same class have similar embeddings and samples from different classes have very different ones. Thus, contrastive loss takes a pair of inputs \((\mathbf{x}_i, \mathbf{x}_j)\) and minimizes the embedding distance when they are from the same class but maximizes the distance otherwise.
+
+\(\mathcal{L}_{\text{cont}}(\mathbf{x}_i, \mathbf{x}_j, \theta) = \mathbb{I}[y_i = y_j] \| f_\theta(\mathbf{x}_i) - f_\theta(\mathbf{x}_j) \|_2^2 + \mathbb{I}[y_i \neq y_j] \max(0, \epsilon - \| f_\theta(\mathbf{x}_i) - f_\theta(\mathbf{x}_j) \|_2)^2\)
+
+where \(\epsilon\) is a hyperparameter, defining the lower bound distance between samples of different classes.
+
+##### Triplet loss
+
+Triplet loss was originally proposed in the FaceNet (Schroff et al. 2015) paper and was used to learn face recognition of the same person at different poses and angles.
+
+<img src="./Machine-Learning/image-20251211021933664.png" alt="image-20251211021933664" style="zoom:67%;" />
+
+Given one anchor input \(\mathbf{x}\), we select one positive sample \(\mathbf{x}^+\) and one negative \(\mathbf{x}^-\), meaning that \(\mathbf{x}^+\) and \(\mathbf{x}\) belong to the same class and \(\mathbf{x}^-\) is sampled from another different class. Triplet loss learns to minimize the distance between the anchor \(\mathbf{x}\) and positive \(\mathbf{x}^+\) and maximize the distance between the anchor \(\mathbf{x}\) and negative \(\mathbf{x}^-\) at the same time with the following equation:
+
+\(\mathcal{L}_{\text{triplet}}(\mathbf{x}, \mathbf{x}^+, \mathbf{x}^-) = \sum_{\mathbf{x} \in \mathcal{X}} \max \left( 0, \left\| f(\mathbf{x}) - f(\mathbf{x}^+) \right\|_2^2 - \left\| f(\mathbf{x}) - f(\mathbf{x}^-) \right\|_2^2 + \epsilon \right)\)
+
+where the margin parameter \(\epsilon\) is configured as the minimum offset between distances of similar vs dissimilar pairs.
+
+* 难负例很重要：It is crucial to select **challenging \(\mathbf{x}^-\)** to truly improve the model.
+
+##### Lifted Structured Loss
+
+> Deep Metric Learning via Lifted Structured Feature Embedding — https://arxiv.org/abs/1511.06452
+
+Lifted Structured Loss (Song et al. 2015) utilizes all the pairwise edges within one training batch for better computational efficiency.
+
+<img src="./Machine-Learning/image-20251211024711877.png" alt="image-20251211024711877" style="zoom:50%;" />
+
+Let $$D_{ij} = \| f(\mathbf{x}_i) - f(\mathbf{x}_j) \|_2$$, a structured loss function is defined as
+
+$$
+\mathcal{L}_{\text{struct}} = \frac{1}{2|\mathcal{P}|} \sum_{(i,j) \in \mathcal{P}} \max\big(0, 
+\, \mathcal{L}_{\text{struct}}^{(ij)}\big)^2
+$$
+
+where
+
+$$
+\mathcal{L}_{\text{struct}}^{(ij)} = D_{ij} + \max\Big( \max_{(i,k) \in \mathcal{N}} \epsilon - D_{ik},\; \max_{(j,l) \in \mathcal{N}} \epsilon - D_{jl} \Big)
+$$
+
+where $$\mathcal{P}$$ contains the set of positive pairs and $$\mathcal{N}$$ is the set of negative pairs. Note that the dense pairwise squared distance matrix can be easily computed per training batch.
+
+The red part in $$\mathcal{L}_{\text{struct}}^{(ij)}$$ is used for mining hard negatives. However, it is not smooth and may cause the convergence to a bad local optimum in practice. Thus, it is relaxed to be:
+
+$$
+\mathcal{L}_{\text{struct}}^{(ij)} = D_{ij} + \log \Big( \sum_{(i,k) \in \mathcal{N}} \exp(\epsilon - D_{ik}) + \sum_{(j,l) \in \mathcal{N}} \exp(\epsilon - D_{jl}) \Big)
+$$
+
+In the paper, they also proposed to enhance the quality of negative samples in each batch by actively incorporating difficult negative samples given a few random positive pairs.
+
+##### N-pair Loss
+
+> Improved Deep Metric Learning with Multi-class N-pair Loss Objective — https://proceedings.neurips.cc/paper/2016/file/6b180037abbebea991d8b1232f8a8ca9-Paper.pdf
+
+Multi-Class N-pair loss (Sohn 2016) generalizes triplet loss to include comparison with multiple negative samples.
+
+Given a $$(N + 1)$$-tuplet of training samples, $$\{\mathbf{x}, \mathbf{x}^+, \mathbf{x}_1^-, \dots, \mathbf{x}_{N-1}^-\}$$, including one positive and $$N - 1$$ negative ones, N-pair loss is defined as:
+
+$$
+\mathcal{L}_{\text{N-pair}}(\mathbf{x}, \mathbf{x}^+, \{\mathbf{x}_i^-\}_{i=1}^{N-1})
+= \log \Big( 1 + \sum_{i=1}^{N-1} \exp\big( f(\mathbf{x})^\top f(\mathbf{x}_i^-) - f(\mathbf{x})^\top f(\mathbf{x}^+) \big) \Big)
+$$
+
+$$
+= - \log \frac{\exp\big(f(\mathbf{x})^\top f(\mathbf{x}^+)\big)}{\exp\big(f(\mathbf{x})^\top f(\mathbf{x}^+)\big) + \sum_{i=1}^{N-1} \exp\big(f(\mathbf{x})^\top f(\mathbf{x}_i^-)\big)}
+$$
+
+If we only sample one negative sample per class, it is equivalent to the softmax loss for multi-class classification.
+
+##### NCE
+
+**Noise Contrastive Estimation**, short for **NCE**, is a method for estimating parameters of a statistical model, proposed by [Gutmann & Hyvarinen](http://proceedings.mlr.press/v9/gutmann10a.html) in 2010. The idea is to run logistic regression to tell apart the target data from noise. Read more on how NCE is used for learning word embedding [here](https://lilianweng.github.io/posts/2017-10-15-word-embedding/#noise-contrastive-estimation-nce).
+
+Let $$\mathbf{x}$$ be the target sample $$\sim P(\mathbf{x}\,|\,C=1;\,\theta)=p_{\theta}(\mathbf{x})$$ and $$\tilde{\mathbf{x}}$$ be the noise sample $$\sim P(\tilde{\mathbf{x}}\,|\,C=0)=q(\tilde{\mathbf{x}})$$. Note that the logistic regression models the logit (i.e., log-odds) and in this case we would like to model the logit of a sample $$\mathbf{u}$$ from the target data distribution instead of the noise distribution:
+
+$$\ell_{\theta}(\mathbf{u}) = \log \frac{p_{\theta}(\mathbf{u})}{q(\mathbf{u})} = \log p_{\theta}(\mathbf{u}) - \log q(\mathbf{u})$$
+
+After converting logits into probabilities with sigmoid $$\sigma(\cdot)$$, we can apply cross entropy loss:
+
+$$\mathcal{L}_{\text{NCE}} = -\frac{1}{N} \sum_{i=1}^{N} \Big[ \log \sigma\big( \ell_{\theta}(\mathbf{x}_i) \big) + \log \big( 1 - \sigma\big( \ell_{\theta}(\tilde{\mathbf{x}}_i) \big) \big) \Big]$$
+
+where $$\sigma(\ell) = \frac{1}{1+\exp(-\ell)} = \frac{p_{\theta}}{p_{\theta}+q}$$.
+
+Here I listed the original form of NCE loss which works with only one positive and one noise sample. In many follow-up works, contrastive loss incorporating multiple negative samples is also broadly referred to as NCE.
+
+* 与对比学习目标的关系：
+  * 视角：NCE做“密度估计”二分类；Contrastive/Triplet/N-pair做“嵌入几何”判别。
+  * 负例：NCE来自显式噪声分布 $$q(x)$$；前述损失由标签或难负例挖掘得到。
+  * 打分：NCE使用对数密度比 $$\ell_\theta(u)=\log p_\theta(u)-\log q(u)$$ 并以二分类交叉熵优化；Contrastive/Triplet使用距离+margin；N-pair/InfoNCE使用 softmax 交叉熵，其中 InfoNCE 的打分满足 $$f(x,c)\propto \frac{p(x\mid c)}{p(x)}$$。
+  * 场景：拟合未归一化模型且可采样噪声分布时用 NCE；表征学习更常用 N-pair/InfoNCE。
+
+##### InfoNCE
 
 * The **InfoNCE loss** in CPC ([Contrastive Predictive Coding](https://lilianweng.github.io/posts/2019-11-10-self-supervised/#contrastive-predictive-coding); [van den Oord, et al. 2018](https://arxiv.org/abs/1807.03748)), inspired by [NCE](https://lilianweng.github.io/posts/2021-05-31-contrastive/#NCE), uses categorical cross-entropy loss to identify the positive sample amongst a set of unrelated noise samples.
 
 * **The probability of we detecting the positive sample correctly is:** $$ p(C = \text{pos}|\mathcal{X}, \boldsymbol{c}) = \frac{p(\boldsymbol{x}_{\text{pos}}|\boldsymbol{c}) \prod_{\substack{i=1, \dots, N; i \neq \text{pos}}} p(\boldsymbol{x}_i)}{\sum_{j=1}^N \left[ p(\boldsymbol{x}_j|\boldsymbol{c}) \prod_{\substack{i=1, \dots, N; i \neq j}} p(\boldsymbol{x}_i) \right]} = \frac{\frac{p(\boldsymbol{x}_{\text{pos}}|\boldsymbol{c})}{p(\boldsymbol{x}_{\text{pos}})}}{\sum_{j=1}^N \frac{p(\boldsymbol{x}_j|\boldsymbol{c})}{p(\boldsymbol{x}_j)}} = \frac{f(\boldsymbol{x}_{\text{pos}}, \boldsymbol{c})}{\sum_{j=1}^N f(\boldsymbol{x}_j, \boldsymbol{c})} $$ where the scoring function is $$ f(\boldsymbol{x}, \boldsymbol{c}) \propto \frac{p(\boldsymbol{x}|\boldsymbol{c})}{p(\boldsymbol{x})} $$.
   * Given a context vector $$ \boldsymbol{c} $$, the positive sample should be drawn from the conditional distribution $$ p(\boldsymbol{x}|\boldsymbol{c}) $$, while $$ N - 1 $$ negative samples are drawn from the proposal distribution $$ p(\boldsymbol{x}) $$, independent from the context $$ \boldsymbol{c} $$. For brevity, let us label all the samples as $$ \mathcal{X} = \{\boldsymbol{x}_i\}_{i=1}^N $$, among which only one of them $$ \boldsymbol{x}_{\text{pos}} $$ is a positive sample. 
 * The InfoNCE loss optimizes the negative log probability of classifying the positive sample correctly: $$ \mathcal{L}_{\text{InfoNCE}} = -\mathbb{E} \left[ \log \frac{f(\boldsymbol{x}, \boldsymbol{c})}{\sum_{\boldsymbol{x}' \in \mathcal{X}} f(\boldsymbol{x}', \boldsymbol{c})} \right] $$ 
-* The fact that $$ f(\boldsymbol{x}, \boldsymbol{c}) $$ estimates the density ratio $$ \frac{p(\boldsymbol{x}|\boldsymbol{c})}{p(\boldsymbol{x})} $$ has a connection with mutual information optimization. To maximize the mutual information between input $$ \boldsymbol{x} $$ and context vector $$ \boldsymbol{c} $$, we have: $$ I(\boldsymbol{x}; \boldsymbol{c}) = \sum_{\boldsymbol{x}, \boldsymbol{c}} p(\boldsymbol{x}, \boldsymbol{c}) \log \frac{p(\boldsymbol{x}, \boldsymbol{c})}{p(\boldsymbol{x})p(\boldsymbol{c})} = \sum_{\boldsymbol{x}, \boldsymbol{c}} p(\boldsymbol{x}, \boldsymbol{c}) \log \frac{p(\boldsymbol{x}|\boldsymbol{c})}{p(\boldsymbol{x})} $$ where the logarithmic term in blue is estimated by $$ f $$. For sequence prediction tasks, rather than modeling the future observations $$ p_k(\boldsymbol{x}_{t + k}|\boldsymbol{c}_t) $$ directly (which could be fairly expensive), CPC models a density function to preserve the mutual information between $$ \boldsymbol{x}_{t + k} $$ and $$ \boldsymbol{c}_t $$: $$ f_k(\boldsymbol{x}_{t + k}, \boldsymbol{c}_t) = \exp\left( \boldsymbol{z}_{t + k}^\top \mathbf{W}_k \boldsymbol{c}_t \right) \propto \frac{p(\boldsymbol{x}_{t + k}|\boldsymbol{c}_t)}{p(\boldsymbol{x}_{t + k})} $$ where $$ \boldsymbol{z}_{t + k} $$ is the encoded input and $$ \mathbf{W}_k $$ is a trainable weight matrix. 
+* The fact that $$ f(\boldsymbol{x}, \boldsymbol{c}) $$ estimates the density ratio $$ \frac{p(\boldsymbol{x}|\boldsymbol{c})}{p(\boldsymbol{x})} $$ has a connection with mutual information optimization. To maximize the mutual information between input $$ \boldsymbol{x} $$ and context vector $$ \boldsymbol{c} $$, we have: $$ I(\boldsymbol{x}; \boldsymbol{c}) = \sum_{\boldsymbol{x}, \boldsymbol{c}} p(\boldsymbol{x}, \boldsymbol{c}) \log \frac{p(\boldsymbol{x}, \boldsymbol{c})}{p(\boldsymbol{x})p(\boldsymbol{c})} = \sum_{\boldsymbol{x}, \boldsymbol{c}} p(\boldsymbol{x}, \boldsymbol{c}) \log \frac{p(\boldsymbol{x}|\boldsymbol{c})}{p(\boldsymbol{x})} $$ where the logarithmic term is estimated by $$ f $$.
   * 最小化 InfoNCE Loss，实际上是在 最大化锚点 c 和正样本 x_i 之间互信息 (Mutual Information) 的一个下界
 
+* 与 N-pair 的关系：两者形式同为 softmax 交叉熵，差异在打分含义与负例采样假设：
+  * 形式：$$\mathcal{L}=-\log\frac{\exp(s(x_{pos},c))}{\sum_j \exp(s(x_j,c))}$$。
+  * InfoNCE：$$s(x,c)=\log f(x,c)\approx \log\frac{p(x\mid c)}{p(x)}$$（密度比，需负例来自 $$p(x)$$）。
+  * N-pair：$$s(x,c)=f(x)^\top f(c)$$（几何相似度，负例为其他标签样本）。
+  * 选择：自监督/互信息目标优先 InfoNCE；监督度量学习优先 N-pair。
+
+* For sequence prediction tasks, rather than modeling the future observations $$ p_k(\boldsymbol{x}_{t + k}|\boldsymbol{c}_t) $$ directly (which could be fairly expensive), CPC models a density function to preserve the mutual information between $$ \boldsymbol{x}_{t + k} $$ and $$ \boldsymbol{c}_t $$: $$ f_k(\boldsymbol{x}_{t + k}, \boldsymbol{c}_t) = \exp\left( \boldsymbol{z}_{t + k}^\top \mathbf{W}_k \boldsymbol{c}_t \right) \propto \frac{p(\boldsymbol{x}_{t + k}|\boldsymbol{c}_t)}{p(\boldsymbol{x}_{t + k})} $$ where $$ \boldsymbol{z}_{t + k} $$ is the encoded input and $$ \mathbf{W}_k $$ is a trainable weight matrix. 
+
+
+##### Soft-Nearest Neighbors (SNN)
+
+* 定义：给定一个批次样本 $$\{(\mathbf{x}_i, y_i)\}_{i=1}^B$$ 和相似度函数 $$f(\cdot,\cdot)$$，在温度 $$\tau$$ 下，损失为：
+  $$\mathcal{L}_{\mathrm{snn}}=-\frac{1}{B}\sum_{i=1}^{B}\log\frac{\sum_{\substack{j\neq i,\\ y_j=y_i}}\exp\!\left(-\,f(\mathbf{x}_i,\mathbf{x}_j)/\tau\right)}{\sum_{\substack{k\neq i}}\exp\!\left(-\,f(\mathbf{x}_i,\mathbf{x}_k)/\tau\right)}$$
+* 作用：鼓励同类样本在表征空间更近、异类更远，允许多个正样本。
+* 温度 $$\tau$$：调节聚集程度；当 $$\tau$$ 较低时更关注小距离，远距离贡献变小。
+* 参考：[Frosst et al., 2019](https://arxiv.org/abs/1902.01896)
+
+#### 训练技巧
+
+##### Heavy Data Augmentation
+
+Given a training sample, data augmentation techniques are needed for creating noise versions of itself to feed into the loss as positive samples. Proper data augmentation setup is critical for learning good and generalizable embedding features. It introduces the non-essential variations into examples without modifying semantic meanings and thus encourages the model to learn the essential part of the representation. For example, experiments in [SimCLR](https://lilianweng.github.io/posts/2021-05-31-contrastive/#simclr) showed that the composition of random cropping and random color distortion is crucial for good performance on learning visual representation of images.
+
+##### Large Batch Size
+
+Using a large batch size during training is another key ingredient in the success of many contrastive learning methods (e.g. [SimCLR](https://lilianweng.github.io/posts/2021-05-31-contrastive/#simclr), [CLIP](https://lilianweng.github.io/posts/2021-05-31-contrastive/#clip)), especially when it relies on in-batch negatives. Only when the batch size is big enough, the loss function can cover a diverse enough collection of negative samples, challenging enough for the model to learn meaningful representation to distinguish different examples.
+
+##### Hard Negative Mining —— Sampling Bias 分析
+
+Hard negative samples should have different labels from the anchor sample, but have embedding features very close to the anchor embedding. With access to ground truth labels in supervised datasets, it is easy to identify task-specific hard negatives. For example when learning sentence embedding, we can treat sentence pairs labelled as “contradiction” in NLI datasets as hard negative pairs (e.g. [SimCSE](https://lilianweng.github.io/posts/2021-05-31-contrastive/#dropout-and-cutoff), or use top incorrect candidates returned by BM25 with most keywords matched as hard negative samples ([DPR](https://lilianweng.github.io/posts/2020-10-29-odqa/#DPR); [Karpukhin et al., 2020](https://arxiv.org/abs/2004.04906)).
+
+However, it becomes tricky to do hard negative mining when we want to remain unsupervised. Increasing training batch size or [memory bank](https://lilianweng.github.io/posts/2021-05-31-contrastive/#memory-bank) size implicitly introduces more hard negative samples, but it leads to a heavy burden of large memory usage as a side effect.
+
+[Chuang et al. (2020)](https://arxiv.org/abs/2007.00224) studied the sampling bias in contrastive learning and proposed debiased loss. In the unsupervised setting, since we do not know the ground truth labels, we may accidentally sample false negative samples. Sampling bias can lead to significant performance drop.
+
+![image-20251211040344042](./Machine-Learning/image-20251211040344042.png)
+
+
+
+
+Let us assume the probability of anchor class \(c\) is uniform $$\rho(c)=\eta^+$$ and the probability of observing a different class is $$\eta^- = 1 - \eta^+$$.
+
+- The probability of observing a positive example for \(\mathbf{x}\) is $$p_{\mathbf{x}}^+(\mathbf{x}')=p(\mathbf{x}'\mid h_{\mathbf{x}'}=h_{\mathbf{x}})$$;
+- The probability of getting a negative sample for \(\mathbf{x}\) is $$p_{\mathbf{x}}^-(\mathbf{x}')=p(\mathbf{x}'\mid h_{\mathbf{x}'}\neq h_{\mathbf{x}})$$.
+
+When we are sampling \(\mathbf{x}^-\), we cannot access the true $$p_{\mathbf{x}}^-(\mathbf{x}^-)$$ and thus \(\mathbf{x}^-\) may be sampled from the (undesired) anchor class \(c\) with probability $$\eta^+$$. The actual sampling data distribution becomes:
+
+$$p(\mathbf{x}') = \eta^+\, p_{\mathbf{x}}^+(\mathbf{x}') + \eta^-\, p_{\mathbf{x}}^-(\mathbf{x}')$$
+
+Thus we can use
+
+$$p_{\mathbf{x}}^-(\mathbf{x}') = \frac{p(\mathbf{x}') - \eta^+\, p_{\mathbf{x}}^+(\mathbf{x}')}{\eta^-}$$
+
+for sampling \(\mathbf{x}^-\) to debias the loss. With \(N\) samples \(\{\mathbf{u}_i\}_{i=1}^N\) from \(p\) and \(M\) samples \(\{\mathbf{v}_i\}_{i=1}^M\) from \(p_{\mathbf{x}}^+\), we can estimate the expectation of the second term $$\mathbb{E}_{\mathbf{x}^-\sim p_{\mathbf{x}}^-}[\exp(f(\mathbf{x})^\top f(\mathbf{x}^-))]$$ in the denominator of contrastive learning loss:
+
+$$
+g\big(\mathbf{x}, \{\mathbf{u}_i\}_{i=1}^N, \{\mathbf{v}_i\}_{i=1}^M\big) = \max\left\{ 
+\frac{1}{\eta^-}\left( \frac{1}{N}\sum_{i=1}^N \exp\big(f(\mathbf{x})^\top f(\mathbf{u}_i)\big) - \frac{\eta^+}{M}\sum_{i=1}^M \exp\big(f(\mathbf{x})^\top f(\mathbf{v}_i)\big) \right),\; \exp(-1/\tau) \right\}
+$$
+
+where \(\tau\) is the temperature and $$\exp(-1/\tau)$$ is the theoretical lower bound of $$\mathbb{E}_{\mathbf{x}^-\sim p_{\mathbf{x}}^-}[\exp(f(\mathbf{x})^\top f(\mathbf{x}^-))]$$.
+
+The final debiased contrastive loss looks like:
+
+$$
+\mathcal{L}_{\mathrm{debias}}^{N,M}(\mathbf{x}) = \mathbb{E}_{\mathbf{x},\{\mathbf{u}_i\}_{i=1}^N\sim p;\; \mathbf{x}^+,\{\mathbf{v}_i\}_{i=1}^M\sim p_{\mathbf{x}}^+} \left[ - \log \frac{\exp\big(f(\mathbf{x})^\top f(\mathbf{x}^+)\big)}{\exp\big(f(\mathbf{x})^\top f(\mathbf{x}^+)\big) + N\, g\big(\mathbf{x}, \{\mathbf{u}_i\}_{i=1}^N, \{\mathbf{v}_i\}_{i=1}^M\big)} \right]
+$$
+
+<img src="./Machine-Learning/image-20251211042401862.png" alt="image-20251211042401862" style="zoom:50%;" />
+
+##### Hard Negative Mining —— Reweight
+
+
+* 思路（Robinson et al., 2021）：通过相似度重加权负采样分布，聚焦“难负例”。设相似度为 $$\mathrm{sim}(\mathbf{x},\mathbf{x}^-) = f(\mathbf{x})^\top f(\mathbf{x}^-)$$，则新的负采样概率为：
+
+  $$ q_{\beta}(\mathbf{x}^-) \propto \exp\big(\beta\, f(\mathbf{x})^\top f(\mathbf{x}^-)\big)\cdot p(\mathbf{x}^-) $$
+
+  其中 \(\beta\) 为浓度参数。
+
+* 重要性采样估计分母期望：设分区函数 \(Z_\beta, Z_\beta^+\) 可经验估计，有
+
+  $$ \mathbb{E}_{\mathbf{u}\sim q_\beta}\big[\exp(f(\mathbf{x})^\top f(\mathbf{u}))\big] = \mathbb{E}_{\mathbf{u}\sim p}\Big[\tfrac{q_\beta}{p}\,\exp(f(\mathbf{x})^\top f(\mathbf{u}))\Big] = \frac{1}{Z_\beta}\, \mathbb{E}_{\mathbf{u}\sim p}\big[\exp\big((\beta+1) f(\mathbf{x})^\top f(\mathbf{u})\big)\big] $$
+
+  $$ \mathbb{E}_{\mathbf{v}\sim q_\beta^+}\big[\exp(f(\mathbf{x})^\top f(\mathbf{v}))\big] = \mathbb{E}_{\mathbf{v}\sim p_{\mathbf{x}}^+}\Big[\tfrac{q_\beta^+}{p_{\mathbf{x}}^+}\,\exp(f(\mathbf{x})^\top f(\mathbf{v}))\Big] = \frac{1}{Z_\beta^+}\, \mathbb{E}_{\mathbf{v}\sim p_{\mathbf{x}}^+}\big[\exp\big((\beta+1) f(\mathbf{x})^\top f(\mathbf{v})\big)\big] $$
+
+* 伪代码（设 `pos`/`neg` 为正负样本的 `exp(sim)` 向量，`N` 为负例数，`t` 为温度，`tau_plus` 为类概率，`beta` 为浓度参数）：
+
+  ```
+  # Original objective
+  standard_loss = -log( pos.sum() / (pos.sum() + neg.sum()) )
+
+  # Debiased objective
+  Neg = max(((-N*tau_plus*pos + neg).sum() / (1 - tau_plus), e**(-1/t))
+  debiased_loss = -log( pos.sum() / (pos.sum() + Neg))
+
+  # Hard sampling objective (Ours)
+  reweight = (beta*neg) / neg.mean()
+  Neg = max(((-N*tau_plus*pos + reweight*neg).sum() / (1 - tau_plus), e**(-1/t))
+  hard_loss = -log( pos.sum() / (pos.sum() + Neg))
+  ```
+
+* 参考：Contrastive Learning with Hard Negative Samples — https://arxiv.org/abs/2010.06682
+
+#### [Vision: Image Embedding](https://lilianweng.github.io/posts/2021-05-31-contrastive/#vision-image-embedding)
+
+Most approaches for contrastive representation learning in the vision domain rely on creating a noise version of a sample by applying a sequence of data augmentation techniques. The augmentation should significantly change its visual appearance but keep the semantic meaning unchanged.
+
+##### Image Augmentation
+
+###### Basic Image Augmentation
+
+There are many ways to modify an image while retaining its semantic meaning. We can use any one of the following augmentation or a composition of multiple operations.
+
+- Random cropping and then resize back to the original size.
+- Random color distortions
+- Random Gaussian blur
+- Random color jittering
+- Random horizontal flip
+- Random grayscale conversion
+- Multi-crop augmentation: Use two standard resolution crops and sample a set of additional low resolution crops that cover only small parts of the image. Using low resolution crops reduces the compute cost. ([SwAV](https://lilianweng.github.io/posts/2021-05-31-contrastive/#swav))
+- And many more …
+
+###### Augmentation Strategies
+
+Many frameworks are designed for learning good data augmentation strategies (i.e. a composition of multiple transforms). Here are a few common ones.
+
+- [AutoAugment](https://lilianweng.github.io/posts/2019-05-05-domain-randomization/#AutoAugment) ([Cubuk, et al. 2018](https://arxiv.org/abs/1805.09501)): Inspired by [NAS](https://lilianweng.github.io/posts/2020-08-06-nas/), AutoAugment frames the problem of learning best data augmentation operations (i.e. shearing, rotation, invert, etc.) for image classification as an RL problem and looks for the combination that leads to the highest accuracy on the evaluation set.
+- RandAugment ([Cubuk et al., 2019](https://arxiv.org/abs/1909.13719)): RandAugment greatly reduces the search space of AutoAugment by controlling the magnitudes of different transformation operations with a single magnitude parameter.
+- PBA (Population based augmentation; [Ho et al., 2019](https://arxiv.org/abs/1905.05393)): PBA combined PBT ([Jaderberg et al, 2017](https://arxiv.org/abs/1711.09846)) with AutoAugment, using the evolutionary algorithm to train a population of children models in parallel to evolve the best augmentation strategies.
+- UDA (Unsupervised Data Augmentation; [Xie et al., 2019](https://arxiv.org/abs/1904.12848)): Among a set of possible augmentation strategies, UDA selects those to minimize the KL divergence between the predicted distribution over an unlabelled example and its unlabelled augmented version.
+
+###### Image Mixture
+
+- 定义：通过“图像混合”构造新样本，提升数据多样性与鲁棒性。
+- [Mixup（Zhang et al., 2018）](https://arxiv.org/abs/1710.09412)
+  - 像素级加权混合，设两图像为 \(I_1, I_2\)，参数 \(\alpha\in[0,1]\)，则：
+    - $$I_{\text{mixup}} \leftarrow \alpha I_1 + (1-\alpha) I_2$$
+  - 可配合标签线性混合，用于分类与表示学习。
+- [Cutmix（Yun et al., 2019）](https://arxiv.org/abs/1905.04899)
+  - 区域级混合，设二值掩码 \(\mathbf{M}_b\in\{0,1\}^I\)，逐元素乘法 \(\odot\)：
+    - $$I_{\text{cutmix}} \leftarrow \mathbf{M}_b \odot I_1 + (\mathbf{1}-\mathbf{M}_b) \odot I_2$$
+  - 等价于在 \(I_1\) 的某区域填入 \(I_2\) 的对应区域（类似 Cutout 的补全）。
+- [MoCHi](https://arxiv.org/abs/2004.02731)（Mixing of Contrastive Hard Negatives; Kalantidis et al., 2020）
+  - 在对比学习中维护负例队列 \(Q=\{\mathbf{n}_1,\dots,\mathbf{n}_K\}\)，按与查询 \(\mathbf{q}\) 的相似度排序，取前 \(N\) 个为难负例 \(Q^N\)。
+  - 合成更难样本：对两负例 \(\mathbf{n}_i,\mathbf{n}_j\) 混合，\(\alpha\in(0,1)\)：
+    - $$\tilde{\mathbf{h}}=\alpha\,\mathbf{n}_i+(1-\alpha)\,\mathbf{n}_j$$
+  - 与查询再混合得到更难负例，\(\beta\in(0,0.5)\)：
+    - $$\mathbf{h}'=\tilde{\mathbf{h}}'\!/\|\tilde{\mathbf{h}}'\|,\ \ \tilde{\mathbf{h}}'=\beta\,\mathbf{q}+(1-\beta)\,\mathbf{n}_j$$
+  - 通过难负例合成提高 InfoNCE 训练张力。
+
+##### Parallel Augmentation
+
+This category of approaches produce two noise versions of one anchor image and aim to learn representation such that these two augmented samples share the same embedding.
+
+
+
+##### Memory Bank
+
+###### MoCo
+
+* 核心思想：动量编码器 + 大型负例字典（FIFO 队列）近似负例来自 $$p(x)$$，配合 InfoNCE 进行表征学习。
+* 结构：查询编码器 $$f_q$$、关键编码器 $$f_k$$；仅对 $$f_q$$ 反向传播，$$f_k$$ 用动量更新：
+  * $$\boldsymbol{\theta}_k \leftarrow m\,\boldsymbol{\theta}_k + (1 - m)\,\boldsymbol{\theta}_q$$
+  * 队列作为字典：当前 batch 的键入队，最旧样本出队。
+* 损失（温度缩放 $$\tau$$）：
+  * $$\mathcal{L}_{\text{MoCo}}(q, k^+, \{k_i\}) = -\log \frac{\exp\big( \mathrm{sim}(q, k^+)/\tau \big)}{\exp\big( \mathrm{sim}(q, k^+)/\tau \big) + \sum_i \exp\big( \mathrm{sim}(q, k_i)/\tau \big)}$$
+* 采样假设：正样本来自 $$p(x\mid c)$$（同实例的另一视图），负样本近似来自 $$p(x)$$（批内随机 + 队列），保证与上下文 $$c$$ 独立。
+* 实操建议：
+  * 队列长度常取 `[16k, 65k]`；动量 $$m\approx 0.999$$；温度 $$\tau\in[0.05, 0.2]$$。
+  * 批内负例与队列负例混合；屏蔽同实例负例；随机增强生成两视图。
+  * 仅对 $$f_q$$ 计算梯度，$$f_k$$ 动量更新以稳定字典特征。
+* 与 in-batch negatives 的关系：仅用批内负例对 $$p(x)$$ 的覆盖不足；MoCo 通过队列扩大负例集合、提升稳定性与效果。
+* 参考：
+  * Momentum Contrast for Unsupervised Visual Representation Learning — https://arxiv.org/abs/1911.05722
+  * Improved Baselines with Momentum Contrastive Learning (MoCo v2) — https://arxiv.org/abs/2003.04297
+* 为什么队列更拟合 $$p(x)$$：
+  * Monte Carlo 近似更好：InfoNCE 分母近似期望 $$\mathbb{E}_{x\sim p(x)}[\exp(\mathrm{sim}(q,f(x))/\tau)]$$，用队列得更大的负例集合，方差更低：
+    $$\hat{Z}(q)=\sum_{i=1}^{N}\exp(\mathrm{sim}(q,k_i)/\tau)\approx N\,\mathbb{E}_{x\sim p(x)}[\exp(\mathrm{sim}(q,f(x))/\tau)]$$
+  * 更接近独立同分布采样：队列跨多个 batch 累积样本，弱化与当前上下文 $$c$$ 的相关性，负例更像来自边缘分布 $$p(x)$$。
+  * 特征更稳定：关键编码器动量更新使字典特征缓慢变化，缓解“陈旧特征”偏差，从而使队列分布更接近数据的稳态映射。
+  * 资源友好：在固定显存下扩大负例规模，避免仅用小 batch 导致对 $$p(x)$$ 覆盖不足。
+
+#### 与推荐系统负例池的对比
+
+* 目标分布不同：MoCo 负例近似边缘分布 $$p(x)$$；推荐召回常需对齐曝光分布或采样分布 $$p(i\mid u)$$ 与流行度分布 $$p(i)$$，并倾向采 hard negatives（高相似但未点击）。
+  * 难负样本定义依赖用户：hard negatives 满足 $$\mathrm{sim}(\mathbf{e}_u,\mathbf{e}_i)$$ 高但未点击，必然以用户向量 $$\mathbf{e}_u$$ 为条件；常由 ANN 检索得到 `Top-K(u)` 再去除正样本与同实例。
+  * 分布一致性：线上召回面对具体用户 $$u$$ 的曝光分布，若用全局 $$p(i)$$ 训练，离线/在线分布失配（SSB），梯度被易负例主导，效果差。
+  * 数据来源即用户相关：曝光未点、同类兴趣群体候选、历史共现物品等都以用户行为/画像构建，天然依赖 $$u$$。
+* 独立性假设：MoCo 要求负例与上下文 $$c$$ 独立；推荐的负例池依赖用户 $$u$$ 构造，通常不独立（难负例来自 ANN 检索或曝光日志）。
+* 损失与校正：MoCo 用 InfoNCE/softmax；推荐常用 sampled softmax 或 BPR，需对采样偏差作校正（如 importance weighting、sampled-softmax 校正项）。
+* 机制实现：MoCo 用 FIFO 队列 + 动量编码器稳定特征；推荐负例池多为缓存/索引，定期刷新、融合曝光/热门/ANN 候选以兼顾难度与覆盖。
+* 风险与缓解：MoCo 关注字典陈旧与分布漂移（用动量与滑窗刷新）；推荐侧关注流行度偏置与曝光偏置（用重采样、去重、时间衰减与加权）。
+* 共同点：均通过扩大负例集合、降低估计方差提高训练稳定性与效果，但 MoCo 更强调无监督密度比估计，推荐更强调与线上分布一致性与面向用户的难负例。
 
 
 #### 训练 Dense Retriever
 
 * Query2Doc paper
   * For training dense retrievers, several factors can influence the final performance, such as hard negative mining (Xiong et al., 2021), intermediate pretraining (Gao and Callan, 2021), and knowledge distillation from a cross-encoder based re-ranker (Qu et al., 2021). In this paper, we investigate two settings to gain a more comprehensive understand- ing of our method. The first setting is training DPR (Karpukhin et al., 2020) models initialized from BERTbase with BM25 hard negatives only
-  * ![image-20241117211622999](Machine-Learning/image-20241117211622999.png)
+  * <img src="Machine-Learning/image-20241117211622999.png" alt="image-20241117211622999" style="zoom:50%;" />
 
 ### 无监督学习
 

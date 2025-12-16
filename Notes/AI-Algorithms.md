@@ -734,6 +734,31 @@ $$PE_{(pos, 2i + 1)} = \cos\left(\frac{pos}{10000^{\frac{2i}{d}}}\right)$$
 
 ### 训练策略
 
+#### 序列打包（Sequence Packing）
+
+* 动机：将变长语料构造成固定长度训练序列，最大化有效上下文与吞吐，最小化无效 padding。
+* 训练目标：
+  * $$\min_{\theta}\; \mathbb{E}_{x_{1:L}\sim \mathcal{S}} \sum_{t=1}^{L} -\log p_{\theta}(x_t \mid x_{<t})$$
+  * `EOS` 用作语义边界；是否允许跨文档注意由策略决定。
+* GPT 系列的默认实践：
+  * 文档流式拼接（Streaming with `EOS`），截断为固定长度：GPT-1（≈512）、GPT-2（1024）、GPT-3（2048）。
+  * 长度分桶（Bucketing）与最小填充，降低 pad 比例，提升吞吐。
+  * 一般允许跨文档注意，无显式跨样本掩码。
+* 现代工程扩展：
+  * 跨样本打包 + 注意力掩码（packed samples with masks）：将多条短样本拼接为一条，并用掩码阻断跨样本注意，兼顾“无填充”与样本独立性。
+  * Token-budget 动态批（token-based batching）：以固定 token 预算组织 batch，样本数随长度变化，提高设备利用率。
+* 影响与权衡（Zhao et al., 2024）：
+  * 过度碎片化削弱长程依赖；保持文档连续性与明确 `EOS` 边界通常更优。
+  * 当任务对边界敏感时，打包+掩码更稳；一般预训练场景允许跨文档注意更有利。
+  * 调参关注“有效 token 利用率”（非 padding token 占比）与“跨文档比率”。
+* 实操建议：
+  * 默认采用“流式拼接 + `EOS` + 长度分桶/Token-budget 动态批”。
+  * 需要严格样本独立时，使用“打包 + 掩码”。
+* 参考：
+  * Radford (2018): Improving language understanding by generative pretraining — https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf
+  * Radford et al. (2019): Language models are unsupervised multitask learners — https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf
+  * Zhao et al. (2024): Analysing The Impact of Sequence Composition on Language Model Pre-Training — https://arxiv.org/abs/2402.13991
+
 #### Label Smoothing
 
 * During training, we employed label smoothing of value ϵls=0.1*ϵ**l**s*=0.1 [(cite)](https://arxiv.org/abs/1512.00567). This hurts perplexity, as the model learns to be more unsure, but improves accuracy and BLEU score.
@@ -1992,9 +2017,7 @@ utilize MTP to improve training.
 ### Pretraining、model结构
 
 * data
-  * Inspired by Ding et al. (2024), we implement the document
-    packing method for data integrity but do not incorporate cross-sample attention masking during
-    training
+  * Inspired by Ding et al. (2024), we implement the document packing method for data integrity but do not incorporate cross-sample attention masking during training
   * Fill-in-Middle (FIM) strategy does not compromise the next-token prediction capability while
     enabling the model to accurately predict middle text based on contextual cues
     * ![image-20250501215109853](./AI-Algorithms/image-20250501215109853.png)
@@ -2005,7 +2028,7 @@ utilize MTP to improve training.
       multi-line prompts without terminal line breaks, particularly for few-shot evaluation prompts.
       To address this issue, we randomly split a certain proportion of such combined tokens during
       training, which exposes the model to a wider array of special cases and mitigates this bias.
-
+  
 * model
   * We set the number of Transformer layers to 61 and the hidden
     dimension to 7168. All learnable parameters are randomly initialized with a standard deviation
