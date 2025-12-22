@@ -181,3 +181,50 @@ def calculate_term_frequency(
             'tf': term_to_count
         }
     return results
+
+
+def ensure_timeseries_collection(
+    client,
+    db_name: str,
+    coll_name: str,
+    meta_field: str,
+    time_field: str,
+    granularity: Optional[str] = None,
+    bucket_max_span_seconds: Optional[int] = None,
+    bucket_rounding_seconds: Optional[int] = None,
+):
+    db = client[db_name]
+    options: dict[str, Any] = {
+        "timeField": time_field,
+        "metaField": meta_field,
+    }
+    if granularity:
+        options["granularity"] = granularity
+    if bucket_max_span_seconds is not None:
+        options["bucketMaxSpanSeconds"] = bucket_max_span_seconds
+    if bucket_rounding_seconds is not None:
+        options["bucketRoundingSeconds"] = bucket_rounding_seconds
+    try:
+        db.create_collection(coll_name, timeseries=options)
+    except Exception:
+        pass
+    return db[coll_name]
+
+
+def timeseries_query(
+    collection,
+    meta_filter: dict,
+    time_field: str,
+    start_ts: Optional[int] = None,
+    end_ts: Optional[int] = None,
+):
+    match_stage = {**meta_filter}
+    time_filter = {}
+    if start_ts:
+        time_filter["$gte"] = start_ts
+    if end_ts:
+        time_filter["$lt"] = end_ts
+    if time_filter:
+        match_stage[time_field] = time_filter
+    pipeline = [{"$match": match_stage}]
+    return list(collection.aggregate(pipeline, allowDiskUse=True))

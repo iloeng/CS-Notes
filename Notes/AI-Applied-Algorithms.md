@@ -281,6 +281,16 @@
     * https://arxiv.org/abs/2205.13147 Matryoshka Representation Learning
   * ![mteb](./AI-Applied-Algorithms/mteb.png)
 
+* **豆包向量模型 (Doubao-Embedding)**
+  * 在 CMTEB 中文文本向量评测榜单上，以 75.62 高分刷新榜单 SOTA。
+  * 在多模态评测榜单 MMEB_v2 中，图片、视频向量化任务双双登顶 SOTA。
+    * MMEB_v2 Image 榜单：77.78 分，领先第二名 5.6 分。
+    * MMEB_v2 Video 榜单：大幅领先第二名 20.1 分。
+
+* **豆包重排模型 (Doubao-Rerank)**
+  * 纯文本任务：在 CMTEB 中文文本向量评测榜单上，以 79.00 高分超过其他 Rerank 模型。
+  * 多模态任务：在 ViDoRe V1/V2、MMEB V1 中均取得榜单第 1 名。
+
 * 开源库：
   * https://github.com/FlagOpen/FlagEmbedding
 

@@ -90,6 +90,20 @@
   * 模仿人做事，将业务拆成工作流（workflow、SOP、pipeline）
   * 每个 Agent 负责一个工作流节点
 
+### 手机助手（豆包）
+
+* 定义：面向手机厂商的系统级服务，将豆包大模型深度融入手机操作系统，实现跨应用的自动化执行与自然语言交互。
+* 关键能力
+  * 系统级集成与唤醒：支持专属物理按键、语音唤醒；以悬浮窗/顶部状态区域呈现，不打断当前应用。
+  * 屏幕理解与问答：对屏幕内容进行理解，支持“屏幕问答”“屏幕记忆”。
+  * 直接操控手机：系统交互与跨应用任务自动执行（如下载、批量处理、跨APP跳转与表单操作）。
+  * 后台执行：任务在后台持续运行，状态吸附于顶部区域，用户可继续使用手机。
+* 产品定位：在豆包 App 基础上与手机厂商 OS 层对接，获得厂商授权以实现系统交互与控制能力。
+* 参考
+  * 说明与定位：http://m.toutiao.com/group/7579935469794886187/
+  * 实测体验1：http://m.toutiao.com/group/7578806856575910435/
+  * 实测体验2：http://m.toutiao.com/group/7578873886368924201/
+
 ### 产品逻辑
 
 #### 产品逻辑
@@ -1630,6 +1644,25 @@ https://webkul.com/ai-semantic-search-services/
 * 实体标注抽取，Key phrase extraction to identify and output important terms
 * OCR，Optical Character Recognition (OCR) to recognize printed and handwritten text in binary files
 * 图文多模，Image analysis to describe image content, and output the descriptions as searchable text file
+
+#### 火山 Viking AI 搜索解决方案
+
+> 引自白皮书：https://bytedance.larkoffice.com/file/LwHqbgN2oo4YQuxf6KucPowYnHe
+
+* **核心定位**：火山引擎推出的一站式 AI 搜索与知识管理解决方案，基于“大模型+搜索引擎”的 RAG 架构，旨在解决大模型在企业应用中的幻觉、知识滞后及数据安全问题。
+* **技术架构**：
+  * **VikingDB**：自研全托管向量数据库，支持百亿级向量检索，提供毫秒级延迟，支撑海量非结构化数据的高效存储与检索。
+  * **混合检索（Hybrid Search）**：结合关键词检索（BM25）和向量检索（Embedding），兼顾精确匹配与语义理解，提升召回率。
+  * **多路召回与精排（Rerank）**：支持多路召回策略，并内置 Cross-Encoder 精排模型，对召回结果进行深度语义重排序，显著提升 TopK 准确性。
+  * **LLM 集成**：无缝接入豆包（Doubao）、Skylark 等大模型，支持 Prompt 编排，实现高质量的问答与摘要生成。
+* **核心优势**：
+  * **端到端全链路**：提供从数据解析（ETL）、切片、向量化、索引构建到检索增强生成的全流程能力，降低开发门槛。
+  * **高性能与弹性**：针对云原生架构优化，支持弹性伸缩，满足高并发查询需求。
+  * **数据安全与私有化**：支持私有化部署（VPC），保障企业核心数据资产安全。
+* **典型应用场景**：
+  * **企业知识库**：构建企业内部的“第二大脑”，帮助员工快速查找文档、政策、代码及技术资料。
+  * **智能客服**：基于知识库自动回答用户咨询，提升服务效率与准确度，降低人工成本。
+  * **电商导购**：理解用户复杂的自然语言购物意图，推荐精准商品，提升转化率。
 
 #### Algolia (电商搜索推荐)
 

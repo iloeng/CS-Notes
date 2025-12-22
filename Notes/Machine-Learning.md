@@ -104,7 +104,7 @@ Materials
 
     - Also needs a "good" initial value: $$\|w_0-w_*\| \leq \frac{\mu}{2H}$$
 
-#### Polyak Momentum
+#### Polyak Momentum (Heavy Ball Method)
 
 * $$w_t \leftarrow w_{t-1} - \eta \nabla F(w_{t-1}) + \beta(w_{t-1} - w_{t-2})$$
 * The formula above is equivalent to
@@ -135,6 +135,33 @@ Materials
 - Implies learning rate **decay** for convergence: $$\eta_t \propto \frac{1}{\sqrt{t}}$$
 
 - Converges to a point where $$\nabla F(w) = 0$$, could be a saddle point or local minimum, not necessarily a global minimum
+
+#### Polyak Averaging (Polyak-Ruppert Averaging)
+
+*   **Origin**: Boris Polyak & David Ruppert. (Categorized in **Convex Optimization** / **Stochastic Approximation**)
+*   **Concept**:
+    *   在 SGD 中，最后一次迭代的参数 $w_T$ 通常受到随机梯度的噪声影响，方差较大。
+    *   Polyak Averaging 建议使用迭代过程中参数的**平均值**作为最终结果：
+        $$ \bar{w}_T = \frac{1}{T} \sum_{t=1}^T w_t $$
+*   **Theoretical Properties**:
+    *   **Optimal Asymptotic Variance**: 证明了在凸优化中，Polyak Averaging 可以达到 Cramer-Rao 下界（即统计估计的理论最优方差），收敛速度达到 $O(1/t)$。
+    *   **Robustness**: 允许使用较大的学习率（slower decay），从而加速收敛，同时通过平均化消除震荡。
+*   **Deep Learning Practice: Exponential Moving Average (EMA)**
+    *   在深度学习（非凸优化）中，直接平均所有参数并不合适（初期参数很差）。
+    *   通常使用**指数移动平均 (EMA)** 来近似 Polyak Averaging，仅关注最近的参数轨迹：
+        $$ w_{\text{EMA}}^{(t)} = \beta \cdot w_{\text{EMA}}^{(t-1)} + (1-\beta) \cdot w^{(t)} $$
+        *   $\beta$ 通常接近 1（如 0.999, 0.9999）。
+    *   **Usage**:
+        *   训练时维护两套参数：一套用于梯度更新（fast weights），一套用于 EMA 累积（slow weights）。
+        *   Inference / Evaluation 时使用 EMA 参数。
+    *   **Applications**:
+        *   GANs (Training stability).
+        *   Self-Supervised Learning (e.g., BYOL, MoCo uses EMA for target encoder).
+        *   Transformers (improves generalization).
+    *   **Distinction from Polyak Momentum**:
+        *   **Polyak Momentum** (Optimization): 修改优化路径，引入“惯性”加速收敛。
+        *   **Polyak Averaging** (Estimation): 不改变优化路径，仅对路径上的参数取平均以减小方差。
+        *   **Usage**: 常组合使用——优化器用 Momentum 加速，推理模型用 Averaging (EMA) 提升鲁棒性。
 
 #### Federated Averaging
 
@@ -657,7 +684,7 @@ https://xgboost.readthedocs.io/en/stable/tutorials/learning_to_rank.html
 
 ### Contrastive Learning
 
-> https://lilianweng.github.io/posts/2021-05-31-contrastive/#infonce
+> Weng, Lilian. (May 2021). Contrastive representation learning. Lil’Log. https://lilianweng.github.io/posts/2021-05-31-contrastive/.
 
 #### Intro
 
@@ -941,27 +968,154 @@ Many frameworks are designed for learning good data augmentation strategies (i.e
 
 This category of approaches produce two noise versions of one anchor image and aim to learn representation such that these two augmented samples share the same embedding.
 
+###### SimCLR
+
+**SimCLR** ([Chen et al, 2020](https://arxiv.org/abs/2002.05709)) proposed a simple framework for contrastive learning of visual representations. It learns representations for visual inputs by maximizing agreement between differently augmented views of the same sample via a contrastive loss in the latent space.
+
+<img src="./Machine-Learning/image-20251219135113896.png" alt="image-20251219135113896" style="zoom:50%;" />
+
+1. Randomly sample a minibatch of $N$ samples and each sample is applied with two different data augmentation operations, resulting in $2N$ augmented samples in total.
+   $$ \tilde{\mathbf{x}}_i = t(\mathbf{x}), \quad \tilde{\mathbf{x}}_j = t'(\mathbf{x}), \quad t, t' \sim \mathcal{T} $$
+   where two separate data augmentation operators, $t$ and $t'$, are sampled from the same family of augmentations $\mathcal{T}$. Data augmentation includes random crop, resize with random flip, color distortions, and Gaussian blur.
+
+2. Given one positive pair, other $2(N-1)$ data points are treated as negative samples. The representation is produced by a base encoder $f(\cdot)$:
+   $$ \mathbf{h}_i = f(\tilde{\mathbf{x}}_i), \quad \mathbf{h}_j = f(\tilde{\mathbf{x}}_j) $$
+
+3. The contrastive learning loss is defined using cosine similarity $\text{sim}(\cdot, \cdot)$. Note that the loss operates on an extra projection layer of the representation $g(\cdot)$ rather than on the representation space directly. But only the representation $\mathbf{h}$ is used for downstream tasks.
+   $$ \mathbf{z}_i = g(\mathbf{h}_i), \quad \mathbf{z}_j = g(\mathbf{h}_j) $$
+   $$ \mathcal{L}_{\text{SimCLR}}^{(i,j)} = -\log \frac{\exp(\text{sim}(\mathbf{z}_i, \mathbf{z}_j)/\tau)}{\sum_{k=1}^{2N} \mathbb{1}_{[k \neq i]} \exp(\text{sim}(\mathbf{z}_i, \mathbf{z}_k)/\tau)} $$
+   where $\mathbb{1}_{[k \neq i]}$ is an indicator function: 1 if $k \neq i$ 0 otherwise.
+
+SimCLR needs a large batch size to incorporate enough negative samples to achieve good performance.
+
+
+
+
+<img src="./Machine-Learning/image-20251219135132353.png" alt="image-20251219135132353" style="zoom:50%;" />
+
+###### Barlow Twins
+
+**Barlow Twins** ([Zbontar et al. 2021](https://arxiv.org/abs/2103.03230)) feeds two distorted versions of samples into the same network to extract features and learns to make the *cross-correlation matrix* between these two groups of output features close to the identity. The goal is to keep the representation vectors of different distorted versions of one sample similar, while minimizing the redundancy between these vectors.
+
+Let $\mathcal{C}$ be a cross-correlation matrix computed between outputs from two identical networks along the batch dimension. $\mathcal{C}$ is a square matrix with the size same as the feature network's output dimensionality. Each entry in the matrix $\mathcal{C}_{ij}$ is the cosine similarity between network output vector dimension at index $i, j$ and batch index $b$, $\mathbf{z}_{b,i}^A$ and $\mathbf{z}_{b,j}^B$, with a value between -1 (i.e. perfect anti-correlation) and 1 (i.e. perfect correlation).
+
+$$ \mathcal{L}_{\text{BT}} = \underbrace{\sum_i (1 - \mathcal{C}_{ii})^2}_{\text{invariance term}} + \lambda \underbrace{\sum_i \sum_{i \neq j} \mathcal{C}_{ij}^2}_{\text{redundancy reduction term}} $$
+
+$$ \text{where } \mathcal{C}_{ij} = \frac{\sum_b \mathbf{z}_{b,i}^A \mathbf{z}_{b,j}^B}{\sqrt{\sum_b (\mathbf{z}_{b,i}^A)^2} \sqrt{\sum_b (\mathbf{z}_{b,j}^B)^2}} $$
+
+Barlow Twins is competitive with SOTA methods for self-supervised learning. It naturally avoids trivial constants (i.e. collapsed representations), and is robust to different training batch sizes.
+
+<img src="./Machine-Learning/image-20251219140034272.png" alt="image-20251219140034272" style="zoom:67%;" />
+
+<img src="./Machine-Learning/image-20251219140317544.png" alt="image-20251219140317544" style="zoom:50%;" />
+
+###### SimCLR vs Barlow Twins
+
+| 特性 | SimCLR | Barlow Twins |
+| :--- | :--- | :--- |
+| **核心机制** | **Contrastive (Sample-wise)** | **Redundancy Reduction (Feature-wise)** |
+| **负样本** | **必须** (依赖 Batch 内负样本) | **不需要** (无显式负样本) |
+| **Loss 对象** | 样本间的相似度矩阵 ($N \times N$) | 特征间的互相关矩阵 ($D \times D$) |
+| **Collapse 避免** | 通过排斥负样本 (Contrastive Loss) | 通过特征解耦 (Redundancy Reduction) |
+| **Batch Size** | **敏感** (需大 Batch 保证负例多样性) | **鲁棒** (小 Batch 依然有效) |
+| **特征维度** | 投影层维度不宜过大 | **受益于高维投影** (维度越高效果越好) |
+
+* **本质区别**：
+  * **SimCLR** 做的是**样本(Instance)级别**的对比：拉近同一张图的 Augmentations，推开不同图的 Augmentations。
+    - **SimCLR** 依赖 Batch 提供**负样本**。Batch 小 $\rightarrow$ 负样本少 $\rightarrow$ 对比学习效果差（容易坍塌或学不到细粒度特征）。
+  * **Barlow Twins** 做的是**特征(Feature)级别**的去冗余：让同一维度的特征在 Augmentations 间不变 (Invariance)，让不同维度的特征去相关 (Decorrelation)。它把 Batch 维度看作样本统计的维度，而在 Feature 维度上做文章。
+    - **Barlow Twins** 依赖 Batch 提供**统计稳定性**。Batch 仅用于估算相关性系数，只要 Batch 大到足以统计出特征是否相关即可（通常比“提供足够负样本”所需的 Batch 小得多）。因此它在较小 Batch 下依然能稳健工作。
+
+###### BYOL
+
+Different from the above approaches, interestingly, **BYOL** (Bootstrap Your Own Latent; [Grill, et al 2020](https://arxiv.org/abs/2006.07733)) claims to achieve a new state-of-the-art results *without using negative samples*. It relies on two neural networks, referred to as *online* and *target* networks that interact and learn from each other. The target network (parameterized by $\xi$) has the same architecture as the online one (parameterized by $\theta$), but with polyak averaged weights, $\xi \leftarrow \tau\xi + (1 - \tau)\theta$.
+
+The goal is to learn a presentation $y$ that can be used in downstream tasks. The online network parameterized by $\theta$ contains:
+
+* An encoder $f_\theta$;
+* A projector $g_\theta$;
+* A predictor $q_\theta$.
+
+The target network has the same network architecture, but with different parameter $\xi$, updated by polyak averaging $\theta$: $\xi \leftarrow \tau\xi + (1 - \tau)\theta$.
+
+Given an image $\mathbf{x}$, the BYOL loss is constructed as follows:
+
+* Create two augmented views: $\mathbf{v} = t(\mathbf{x}); \mathbf{v}' = t'(\mathbf{x})$ with augmentations sampled $t \sim \mathcal{T}, t' \sim \mathcal{T}'$;
+* Then they are encoded into representations, $\mathbf{y}_\theta = f_\theta(\mathbf{v}), \mathbf{y}' = f_\xi(\mathbf{v}')$;
+* Then they are projected into latent variables, $\mathbf{z}_\theta = g_\theta(\mathbf{y}_\theta), \mathbf{z}' = g_\xi(\mathbf{y}')$;
+* The online network outputs a prediction $q_\theta(\mathbf{z}_\theta)$;
+* Both $q_\theta(\mathbf{z}_\theta)$ and $\mathbf{z}'$ are L2-normalized, giving us $\bar{q}_\theta(\mathbf{z}_\theta) = q_\theta(\mathbf{z}_\theta) / \|q_\theta(\mathbf{z}_\theta)\|$ and $\bar{\mathbf{z}}' = \mathbf{z}' / \|\mathbf{z}'\|$;
+* The loss $\mathcal{L}_{\theta}^{\text{BYOL}}$ is MSE between L2-normalized prediction $\bar{q}_\theta(\mathbf{z})$ and $\bar{\mathbf{z}}'$;
+* The other symmetric loss $\tilde{\mathcal{L}}_{\theta}^{\text{BYOL}}$ can be generated by switching $\mathbf{v}'$ and $\mathbf{v}$; that is, feeding $\mathbf{v}'$ to online network and $\mathbf{v}$ to target network.
+* The final loss is $\mathcal{L}_{\theta}^{\text{BYOL}} + \tilde{\mathcal{L}}_{\theta}^{\text{BYOL}}$ and only parameters $\theta$ are optimized.
+
+Unlike most popular contrastive learning based approaches, BYOL does not use negative pairs. Most bootstrapping approaches rely on pseudo-labels or cluster indices, but BYOL directly bootstraps the latent representation.
+
+It is quite interesting and surprising that *without* negative samples, BYOL still works well. Later I ran into this [post](https://arxiv.org/pdf/2510.10572) by Abe Fetterman & Josh Albrecht, they highlighted two surprising findings while were trying to reproduce BYOL:
+
+1. **BYOL generally performs no better than random when *batch normalization is removed*.**
+2. The presence of batch normalization implicitly causes a form of contrastive learning. They believe that using negative samples is important for avoiding model collapse (i.e. what if you use all-zeros representation for every data point?). **Batch normalization injects dependency on negative samples *inexplicitly*** because no matter how similar a batch of inputs are, the values are re-distributed (spread out $\sim \mathcal{N}(0, 1)$) and therefore batch normalization prevents model collapse. Strongly recommend you to read the [full article](https://arxiv.org/pdf/2510.10572) if you are working in this area.
+
+
+
+<img src="./Machine-Learning/image-20251219141625402.png" alt="image-20251219141625402" style="zoom:50%;" />
+
+
+
 
 
 ##### Memory Bank
 
-###### MoCo
+Computing embeddings for a large number of negative samples in every batch is extremely expensive. One common approach is to store the representation in memory to trade off data staleness for cheaper compute.
+
+###### Instance Discrimination with Memoy Bank
+
+**Instance contrastive learning** ([Wu et al, 2018](https://arxiv.org/abs/1805.01978v1)) pushes the class-wise supervision to the extreme by considering each instance as *a distinct class of its own*. It implies that the number of “classes” will be the same as the number of samples in the training dataset. Hence, it is unfeasible to train a softmax layer with these many heads, but instead it can be approximated by [NCE](https://lilianweng.github.io/posts/2021-05-31-contrastive/#nce).
+
+![image-20251219164609538](./Machine-Learning/image-20251219164609538.png)
+
+Let $\mathbf{v} = f_\theta(x)$ be an embedding function to learn and the vector is normalized to have $|\mathbf{v}| = 1$. A non-parametric classifier predicts the probability of a sample $\mathbf{v}$ belonging to class $i$ with a temperature parameter $\tau$:
+$$ P(C=i|\mathbf{v}) = \frac{\exp(\mathbf{v}_i^\top \mathbf{v}/\tau)}{\sum_{j=1}^n \exp(\mathbf{v}_j^\top \mathbf{v}/\tau)} $$
+
+Instead of computing the representations for all the samples every time, they implement an **Memory Bank** for storing sample representation in the database from past iterations. Let $V = \{\mathbf{v}_i\}$ be the memory bank and $\mathbf{f}_i = f_\theta(\mathbf{x}_i)$ be the feature generated by forwarding the network. We can use the representation from the memory bank $\mathbf{v}_i$ instead of the feature forwarded from the network $\mathbf{f}_i$ when comparing pairwise similarity.
+
+The denominator theoretically requires access to the representations of all the samples, but that is too expensive in practice. Instead we can estimate it via Monte Carlo approximation using a random subset of $M$ indices $\{j_k\}_{k=1}^M$.
+$$ P(i|\mathbf{v}) = \frac{\exp(\mathbf{v}^\top \mathbf{f}_i/\tau)}{\sum_{j=1}^N \exp(\mathbf{v}_j^\top \mathbf{f}_i/\tau)} \simeq \frac{\exp(\mathbf{v}^\top \mathbf{f}_i/\tau)}{\frac{N}{M} \sum_{k=1}^M \exp(\mathbf{v}_{j_k}^\top \mathbf{f}_i/\tau)} $$
+
+Because there is only one instance per class, the training is unstable and fluctuates a lot. To improve the training smoothness, they introduced an extra term for positive samples in the loss function based on the [proximal optimization method](https://web.stanford.edu/~boyd/papers/prox_algs.html). The final NCE loss objective looks like:
+$$ \mathcal{L}_{\text{instance}} = -\mathbb{E}_{P_d}[\log h(i, \mathbf{v}_i^{(t-1)}) - \lambda \|\mathbf{v}_i^{(t)} - \mathbf{v}_i^{(t-1)}\|_2^2] - M \mathbb{E}_{P_n}[\log(1 - h(i, \mathbf{v}'^{(t-1)})] $$
+$$ h(i, \mathbf{v}) = \frac{P(i|\mathbf{v})}{P(i|\mathbf{v}) + M P_n(i)} \quad \text{where the noise distribution is uniform } P_n = 1/N $$
+
+where $\{\mathbf{v}^{(t-1)}\}$ are embeddings stored in the memory bank from the previous iteration. The difference between iterations $|\mathbf{v}_i^{(t)} - \mathbf{v}_i^{(t-1)}|_2^2$ will gradually vanish as the learned embedding converges.
+
+###### MoCo & MoCo-V2
+
+> * Momentum Contrast for Unsupervised Visual Representation Learning — https://arxiv.org/abs/1911.05722
+> * Improved Baselines with Momentum Contrastive Learning (MoCo v2) — https://arxiv.org/abs/2003.04297
+
+**Momentum Contrast** (**MoCo**; [He et al, 2019](https://arxiv.org/abs/1911.05722)) provides a framework of unsupervised learning visual representation as a *dynamic dictionary look-up*. The dictionary is structured as a large FIFO queue of encoded representations of data samples.
 
 * 核心思想：动量编码器 + 大型负例字典（FIFO 队列）近似负例来自 $$p(x)$$，配合 InfoNCE 进行表征学习。
+
 * 结构：查询编码器 $$f_q$$、关键编码器 $$f_k$$；仅对 $$f_q$$ 反向传播，$$f_k$$ 用动量更新：
   * $$\boldsymbol{\theta}_k \leftarrow m\,\boldsymbol{\theta}_k + (1 - m)\,\boldsymbol{\theta}_q$$
+    * The MoCo dictionary is not differentiable as a queue, so we cannot rely on back-propagation to update the key encoder $f_k$. One naive way might be to use the same encoder for both $f_q$ and $f_k$. Differently, MoCo proposed to use a momentum-based update with a momentum coefficient $m \in [0, 1)$. Say, the parameters of $f_q$ and $f_k$ are labeled as $\theta_q$ and $\theta_k$, respectively.
   * 队列作为字典：当前 batch 的键入队，最旧样本出队。
+    * Compared to the memory bank, a queue-based dictionary in MoCo enables us to reuse representations of immediately preceding mini-batches of data.
 * 损失（温度缩放 $$\tau$$）：
+  * Given a query sample $\mathbf{x}_q$, we get a query representation through an encoder $\mathbf{q} = f_q(\mathbf{x}_q)$. A list of key representations $\{\mathbf{k}_1, \mathbf{k}_2, \dots\}$ in the dictionary are encoded by a momentum encoder $\mathbf{k}_i = f_k(\mathbf{x}_i^k)$. Let's assume among them there is a single *positive* key $\mathbf{k}^+$ in the dictionary that matches $\mathbf{q}$. In the paper, they create $\mathbf{k}^+$ using a noise copy of $\mathbf{x}_q$ with different augmentation. Then the InfoNCE contrastive loss with temperature $\tau$ is used over one positive and $N-1$ negative samples:
   * $$\mathcal{L}_{\text{MoCo}}(q, k^+, \{k_i\}) = -\log \frac{\exp\big( \mathrm{sim}(q, k^+)/\tau \big)}{\exp\big( \mathrm{sim}(q, k^+)/\tau \big) + \sum_i \exp\big( \mathrm{sim}(q, k_i)/\tau \big)}$$
+* <img src="./Machine-Learning/image-20251219183035672.png" alt="image-20251219183035672" style="zoom:50%;" />
 * 采样假设：正样本来自 $$p(x\mid c)$$（同实例的另一视图），负样本近似来自 $$p(x)$$（批内随机 + 队列），保证与上下文 $$c$$ 独立。
 * 实操建议：
   * 队列长度常取 `[16k, 65k]`；动量 $$m\approx 0.999$$；温度 $$\tau\in[0.05, 0.2]$$。
   * 批内负例与队列负例混合；屏蔽同实例负例；随机增强生成两视图。
   * 仅对 $$f_q$$ 计算梯度，$$f_k$$ 动量更新以稳定字典特征。
-* 与 in-batch negatives 的关系：仅用批内负例对 $$p(x)$$ 的覆盖不足；MoCo 通过队列扩大负例集合、提升稳定性与效果。
-* 参考：
-  * Momentum Contrast for Unsupervised Visual Representation Learning — https://arxiv.org/abs/1911.05722
-  * Improved Baselines with Momentum Contrastive Learning (MoCo v2) — https://arxiv.org/abs/2003.04297
+* 与 in-batch negatives 的关系：
+  * 仅用批内负例对 $$p(x)$$ 的覆盖不足，MoCo 通过队列扩大负例集合、提升稳定性与效果。
+  * The advantage of MoCo compared to [SimCLR](https://lilianweng.github.io/posts/2021-05-31-contrastive/#simclr) is that MoCo decouples the batch size from the number of negatives, but SimCLR requires a large batch size in order to have enough negative samples and suffers performance drops when their batch size is reduced.
+* MoCo V2
+  * Two designs in SimCLR, namely, (1) an MLP projection head and (2) stronger data augmentation, are proved to be very efficient. **MoCo V2** ([Chen et al, 2020](https://arxiv.org/abs/2003.04297)) combined these two designs, achieving even better transfer performance with no dependency on a very large batch size.
 * 为什么队列更拟合 $$p(x)$$：
   * Monte Carlo 近似更好：InfoNCE 分母近似期望 $$\mathbb{E}_{x\sim p(x)}[\exp(\mathrm{sim}(q,f(x))/\tau)]$$，用队列得更大的负例集合，方差更低：
     $$\hat{Z}(q)=\sum_{i=1}^{N}\exp(\mathrm{sim}(q,k_i)/\tau)\approx N\,\mathbb{E}_{x\sim p(x)}[\exp(\mathrm{sim}(q,f(x))/\tau)]$$
@@ -969,7 +1123,31 @@ This category of approaches produce two noise versions of one anchor image and a
   * 特征更稳定：关键编码器动量更新使字典特征缓慢变化，缓解“陈旧特征”偏差，从而使队列分布更接近数据的稳态映射。
   * 资源友好：在固定显存下扩大负例规模，避免仅用小 batch 导致对 $$p(x)$$ 覆盖不足。
 
-#### 与推荐系统负例池的对比
+###### CURL
+
+**CURL** ([Srinivas, et al. 2020](https://arxiv.org/abs/2004.04136)) applies the above ideas in [Reinforcement Learning](https://lilianweng.github.io/posts/2018-02-19-rl-overview/). It learns a visual representation for RL tasks by matching embeddings of two data-augmented versions, $$o_q$$ and $$o_k$$, of the raw observation $$o$$ via contrastive loss. CURL primarily relies on random crop data augmentation. The key encoder is implemented as a momentum encoder with weights as EMA of the query encoder weights, same as in [MoCo](https://lilianweng.github.io/posts/2021-05-31-contrastive/#moco--moco-v2).
+
+One significant difference between RL and supervised visual tasks is that RL depends on *temporal consistency* between consecutive frames. Therefore, CURL applies augmentation consistently on each stack of frames to retain information about the temporal structure of the observation.
+
+> **解读：Temporal Consistency 与 RL 中的帧堆叠**
+>
+> 这里的核心难点在于理解 RL 中**State (状态)** 的定义方式以及**Augmentation (增强)** 可能带来的破坏。
+>
+> 1.  **Frame Stacking (帧堆叠) 与 物理信息**
+>     *   在 CV 任务（如 ImageNet 分类）中，一张静态图片足以判断是“猫”还是“狗”。
+>     *   但在 RL 任务（如 Atari Pong 游戏）中，单张静态图片是不够的。看着一张球的图片，Agent 无法判断球是**向左飞**还是**向右飞**。
+>     *   **解决方案**：通常将连续的 $k$ 帧（例如 $k=4$）堆叠在一起作为一个 State $S_t = \{f_t, f_{t-1}, f_{t-2}, f_{t-3}\}$。Agent 通过对比帧与帧之间像素的位移，隐式地推断出物体的**速度**和**加速度**。这就是所谓的 **Temporal Structure**。
+>
+> 2.  **为什么需要 Consistent Augmentation?**
+>     *   **Inconsistent (错误做法)**：如果对 $S_t$ 中的 $f_t$ 做左上角裁切，对 $f_{t-1}$ 做右下角裁切。那么在 Agent 看来，物体在 $t-1$ 到 $t$ 的瞬间发生了剧烈的、不符合物理规律的位移。这种增强破坏了帧间的相对几何关系，导致 Agent 无法正确学习物理动态。
+>     *   **Consistent (CURL 做法)**：CURL 提出，必须对同一个 Stack 中的所有帧应用**完全相同**的增强操作（例如：使用**同一个**随机裁剪框 $(x, y, w, h)$ 去裁剪 $f_t, \dots, f_{t-3}$）。
+>     *   这样做的结果是：虽然整个视野发生了平移，但物体在帧与帧之间的**相对位移**保持不变。Agent 依然可以从中提取出正确的速度和运动模式，从而保证了 **Temporal Consistency**。
+
+<img src="./Machine-Learning/image-20251219185601855.png" alt="image-20251219185601855" style="zoom:67%;" />
+
+
+
+###### 与推荐系统负例池的对比
 
 * 目标分布不同：MoCo 负例近似边缘分布 $$p(x)$$；推荐召回常需对齐曝光分布或采样分布 $$p(i\mid u)$$ 与流行度分布 $$p(i)$$，并倾向采 hard negatives（高相似但未点击）。
   * 难负样本定义依赖用户：hard negatives 满足 $$\mathrm{sim}(\mathbf{e}_u,\mathbf{e}_i)$$ 高但未点击，必然以用户向量 $$\mathbf{e}_u$$ 为条件；常由 ANN 检索得到 `Top-K(u)` 再去除正样本与同实例。
@@ -981,18 +1159,9 @@ This category of approaches produce two noise versions of one anchor image and a
 * 风险与缓解：MoCo 关注字典陈旧与分布漂移（用动量与滑窗刷新）；推荐侧关注流行度偏置与曝光偏置（用重采样、去重、时间衰减与加权）。
 * 共同点：均通过扩大负例集合、降低估计方差提高训练稳定性与效果，但 MoCo 更强调无监督密度比估计，推荐更强调与线上分布一致性与面向用户的难负例。
 
+##### Feature Cluster
 
-#### 训练 Dense Retriever
-
-* Query2Doc paper
-  * For training dense retrievers, several factors can influence the final performance, such as hard negative mining (Xiong et al., 2021), intermediate pretraining (Gao and Callan, 2021), and knowledge distillation from a cross-encoder based re-ranker (Qu et al., 2021). In this paper, we investigate two settings to gain a more comprehensive understand- ing of our method. The first setting is training DPR (Karpukhin et al., 2020) models initialized from BERTbase with BM25 hard negatives only
-  * <img src="Machine-Learning/image-20241117211622999.png" alt="image-20241117211622999" style="zoom:50%;" />
-
-### 无监督学习
-
-#### 聚类算法 (Clustering)
-
-##### K-Means
+###### K-Means
 
 K-Means是无监督学习中最基础的聚类算法之一。
 
@@ -1007,6 +1176,410 @@ K-Means是无监督学习中最基础的聚类算法之一。
 
 *   **应用**:
     *   在深度学习中，常用于初始化向量量化（Vector Quantization）模型中的码本（Codebook）。通过K-Means提供一个比随机初始化更好的起点，有助于模型稳定训练，缓解码本崩塌问题。 
+
+###### Deep Cluster
+
+**DeepCluster** ([Caron et al. 2018](https://arxiv.org/abs/1807.05520)) iteratively clusters features via k-means and uses cluster assignments as pseudo labels to provide supervised signals.
+
+<img src="./Machine-Learning/image-20251219190405660.png" alt="image-20251219190405660" style="zoom:67%;" />
+
+In each iteration, DeepCluster clusters data points using the prior representation and then produces the new cluster assignments as the classification targets for the new representation. However this iterative process is prone to trivial solutions. While avoiding the use of negative pairs, it requires a costly clustering phase and specific precautions to avoid collapsing to trivial solutions.
+
+###### SwAV TODO
+
+**SwAV** (*Swapping Assignments between multiple Views*; [Caron et al. 2020](https://arxiv.org/abs/2006.09882)) is an online contrastive learning algorithm. It computes a code from an augmented version of the image and tries to predict this code using another augmented version of the same image.
+
+![image-20251219191215120](./Machine-Learning/image-20251219191215120.png)
+
+Given features of images with two different augmentations, $\mathbf{z}_t$ and $\mathbf{z}_s$, SwAV computes corresponding codes $\mathbf{q}_t$ and $\mathbf{q}_s$ and the loss quantifies the fit by swapping two codes using $\ell(\cdot)$ to measure the fit between a feature and a code.
+
+$$ \mathcal{L}_{\text{SwAV}}(\mathbf{z}_t, \mathbf{z}_s) = \ell(\mathbf{z}_t, \mathbf{q}_s) + \ell(\mathbf{z}_s, \mathbf{q}_t) $$
+
+The swapped fit prediction depends on the cross entropy between the predicted code and a set of $K$ trainable prototype vectors $\mathbf{C} = \{\mathbf{c}_1, \dots, \mathbf{c}_K\}$. The prototype vector matrix is shared across different batches and represents *anchor clusters* that each instance should be clustered to.
+
+$$ \ell(\mathbf{z}_t, \mathbf{q}_s) = - \sum_k \mathbf{q}_s^{(k)} \log \mathbf{p}_t^{(k)} \quad \text{where } \mathbf{p}_t^{(k)} = \frac{\exp(\mathbf{z}_t^\top \mathbf{c}_k / \tau)}{\sum_{k'} \exp(\mathbf{z}_t^\top \mathbf{c}_{k'} / \tau)} $$
+
+In a mini-batch containing $B$ feature vectors $\mathbf{Z} = [\mathbf{z}_1, \dots, \mathbf{z}_B]$, the mapping matrix between features and prototype vectors is defined as $\mathbf{Q} = [\mathbf{q}_1, \dots, \mathbf{q}_B] \in \mathbb{R}_{+}^{K \times B}$. We would like to maximize the similarity between the features and the prototypes:
+
+$$ \max_{\mathbf{Q} \in \mathcal{Q}} \text{Tr}(\mathbf{Q}^\top \mathbf{C}^\top \mathbf{Z}) + \varepsilon \mathcal{H}(\mathbf{Q}) $$
+$$ \text{where } \mathcal{Q} = \left\{ \mathbf{Q} \in \mathbb{R}_{+}^{K \times B} \mid \mathbf{Q}\mathbf{1}_B = \frac{1}{K}\mathbf{1}_K, \mathbf{Q}^\top \mathbf{1}_K = \frac{1}{B}\mathbf{1}_B \right\} $$
+
+where $\mathcal{H}$ is the entropy, $\mathcal{H}(\mathbf{Q}) = - \sum_{ij} \mathbf{Q}_{ij} \log \mathbf{Q}_{ij}$, controlling the smoothness of the code. The coefficient $\varepsilon$ should not be too large; otherwise, all the samples will be assigned uniformly to all the clusters. The candidate set of solutions for $\mathbf{Q}$ requires every mapping matrix to have each row sum up to $1/K$ and each column to sum up to $1/B$, enforcing that each prototype gets selected at least $B/K$ times on average.
+
+SwAV relies on the iterative Sinkhorn-Knopp algorithm (Cuturi 2013) to find the solution for $\mathbf{Q}$.
+
+> **深度解析：SwAV 的精妙之处 (The Ingenuity of SwAV)**
+>
+> SwAV 的核心贡献在于巧妙地解决了 Contrastive Learning 中 "Negative Sampling" 的痛点，同时避免了传统 Deep Clustering 必须 "Offline Clustering" 的低效。
+>
+> 1.  **从“特征对比”到“聚类指派预测” (Swapped Prediction)**
+>     *   **传统对比学习 (SimCLR/MoCo)**：直接拉近两个视图 $z_t, z_s$ 的特征距离。这通常需要大量的负样本（Negative Pairs）来防止模型输出常数解（Collapse）。
+>     *   **SwAV**：不直接比特征，而是比“代码” (Code/Assignment)。我用视图 A 的特征去预测视图 B 所属的聚类中心，反之亦然。这迫使网络学习到的特征具有**语义一致性**——无论怎么增强，它们都应该属于同一个“类”。
+>
+> 2.  **Q 的优化：在线生成的“软标签” (Online Soft Labels)**
+>     *   SwAV 最精妙的设计在于如何计算目标 $\mathbf{Q}$（即 Code）。它没有使用固定的 One-hot 标签，而是通过求解一个**最优传输问题 (Optimal Transport)** 来动态生成。
+>     *   **Equipartition Constraint (均分约束)**：公式中的约束集合 $\mathcal{Q}$ 强制要求：
+>         *   **行和固定**：每个样本必须分配出去。
+>         *   **列和固定**：每个聚类中心 (Prototype) 必须接收到大致相同数量的样本。
+>     *   **作用**：这个“列和约束”天然地**防止了 Mode Collapse**（即所有样本都分给同一个 Cluster 的平凡解）。在不需要显式负样本的情况下，通过强制让 Cluster 负载均衡，隐式地利用了负样本信息（如果我都分给了 Cluster 1，你就不能再分给 Cluster 1 了）。
+>     *   **Sinkhorn-Knopp 算法**：这是一个极其高效的迭代算法（矩阵行归一化 -> 列归一化 -> 行归一化...），能在 GPU 上快速并行计算。它使得 SwAV 可以在每个 Batch 内实时生成高质量的“聚类标签”，实现了真正的 **Online Clustering**。
+
+###### Sinkhorn-Knopp Algorithm
+
+Sinkhorn-Knopp 算法是一种经典的矩阵缩放算法，用于将非负矩阵变换为具有指定行和列和的**双随机矩阵 (Doubly Stochastic Matrix)**。在 SwAV 中，它被用于快速求解最优传输问题以获得软标签 $\mathbf{Q}$。
+
+*   **核心原理**：交替归一化 (Alternating Normalization)。
+    *   给定矩阵 $\mathbf{M}$，我们希望找到对角矩阵 $\mathbf{D}_r$ 和 $\mathbf{D}_c$，使得 $\mathbf{Q} = \mathbf{D}_r \mathbf{M} \mathbf{D}_c$ 满足目标行和 $\mathbf{r}$ 与目标列和 $\mathbf{c}$。
+    *   **步骤**：
+        1.  **行归一化**：缩放每行，使其和为 $\mathbf{r}$。
+        2.  **列归一化**：缩放每列，使其和为 $\mathbf{c}$。
+        3.  重复上述步骤直到收敛（通常只需 3-5 次迭代即可获得足够好的近似）。
+
+*   **PyTorch 实现 (SwAV 简化版)**：
+    ```python
+    def sinkhorn(out, epsilon=0.05, sinkhorn_iterations=3):
+        Q = torch.exp(out / epsilon).t() # Q is K x B
+        B = Q.shape[1] # number of samples to assign
+        K = Q.shape[0] # how many prototypes
+    
+        # make the matrix sums to 1
+        sum_Q = torch.sum(Q)
+        Q /= sum_Q
+    
+        for _ in range(sinkhorn_iterations):
+            # normalize each row: total weight per prototype must be 1/K
+            sum_of_rows = torch.sum(Q, dim=1, keepdim=True)
+            Q /= sum_of_rows
+            Q /= K
+    
+            # normalize each column: total weight per sample must be 1/B
+            Q /= torch.sum(Q, dim=0, keepdim=True)
+            Q /= B
+    
+        Q *= B # the colomns must sum to 1 so that Q is an assignment
+        return Q.t()
+    ```
+
+###### **对比分析：SwAV vs. RQ-VAE (FORGE)**
+
+Sinkhorn 算法不仅用于对比学习，在推荐系统的 **Vector Quantization (VQ)** 任务中也有重要应用（如阿里 FORGE 模型）。两者虽然都用了 Sinkhorn，但动机和细节有所不同：
+
+| 维度         | SwAV (Contrastive Learning)                                  | FORGE (RQ-VAE for RecSys)                                    |
+| :----------- | :----------------------------------------------------------- | :----------------------------------------------------------- |
+| **核心目标** | **Feature Learning**：防止 Feature Collapse，强迫图片特征聚类均匀。 | **Quantization**：防止 **Codebook Collapse**，强迫 Code 利用率均匀，最大化离散编码的熵。 |
+| **分配对象** | **Prototypes**：作为临时的聚类中心，随 Batch 动态变化。      | **Codebook Vectors**：作为固定的离散码本，随训练逐渐稳定。   |
+| **输入矩阵** | 特征与 Prototype 的点积相似度 (Logits)。                     | 特征与 Codebook 的 L2/Cosine 距离 (经过标准化处理)。         |
+| **作用阶段** | 训练全过程，作为 Loss 计算的一部分 (Swapped Prediction)。    | 仅在 Training 阶段用于生成 Index，Inference 时直接取 Argmin。 |
+| **实现细节** | 通常对 Logits 做 Softmax 前处理。                            | 往往对 Distances 做归一化 (`(d - mean) / std`) 后再 Sinkhorn，效果更稳。 |
+
+
+
+##### Working with Supervised Datasets
+
+###### CLIP
+
+参考「AI-Algorithms」
+
+从公式推导来看，CLIP 的 Cross Entropy Loss 等价于 InfoNCE Loss。
+
+*   **InfoNCE 公式**：
+    给定 Query $q$ 和正样本 Key $k^+$ 以及一组负样本 Key $\{k^-\}$，InfoNCE Loss 定义为：
+    $$ \mathcal{L}_{\text{InfoNCE}} = -\log \frac{\exp(sim(q, k^+) / \tau)}{\sum_{i} \exp(sim(q, k_i) / \tau)} $$
+    其中 $\tau$ 是温度系数。
+
+*   **CLIP 中的 Cross Entropy**：
+    在代码中，`logits` 矩阵存储了所有 Image-Text 对的余弦相似度并乘以了温度系数（`np.exp(t)` 对应 $1/\tau$）。
+    对于第 $i$ 行（Image $I_i$ 作为 Query），`cross_entropy_loss(logits, labels, axis=0)` 计算的是：
+    $$ \mathcal{L}_i = -\log \frac{\exp(I_i \cdot T_i \cdot e^t)}{\sum_{j} \exp(I_i \cdot T_j \cdot e^t)} $$
+    这完全符合 InfoNCE 的形式：分子是正样本对 $(I_i, T_i)$ 的相似度指数，分母是 $I_i$ 与 Batch 内所有 Text $T_j$ 的相似度指数之和（即把 Batch 内其他 Text 视为负样本）。
+
+因此，CLIP 的 Symmetric Cross Entropy Loss 本质上就是对 Image-to-Text 和 Text-to-Image 两个方向分别计算 InfoNCE Loss 并取平均。
+
+###### Supervised Contrastive Learning
+
+There are several known issues with cross entropy loss, such as the lack of robustness to noisy labels and the possibility of poor margins. Existing improvement for cross entropy loss involves the curation of better training data, such as label smoothing and data augmentation. **Supervised Contrastive Loss** ([Khosla et al. 2021](https://arxiv.org/abs/2004.11362)) aims to leverage label information more effectively than cross entropy, **imposing that normalized embeddings from the same class are closer together than embeddings from different classes.**
+
+<img src="./Machine-Learning/image-20251220034428875.png" alt="image-20251220034428875" style="zoom:67%;" />
+
+Given a set of randomly sampled $n$ (image, label) pairs, $\{\mathbf{x}_i, y_i\}_{i=1}^n$, $2n$ training pairs can be created by applying two random augmentations of every sample, $\{\tilde{\mathbf{x}}_i, \tilde{y}_i\}_{i=1}^{2n}$.
+
+Supervised contrastive loss $\mathcal{L}_{\text{supcon}}$ utilizes multiple positive and negative samples, very similar to soft nearest-neighbor loss]:
+
+$$
+\mathcal{L}_{\text{supcon}} = - \sum_{i=1}^{2n} \frac{1}{2|N_i| - 1} \sum_{j \in N(y_i), j \neq i} \log \frac{\exp(\mathbf{z}_i \cdot \mathbf{z}_j / \tau)}{\sum_{k \in I, k \neq i} \exp(\mathbf{z}_i \cdot \mathbf{z}_k / \tau)}
+$$
+
+where $\mathbf{z}_k = P(E(\tilde{\mathbf{x}}_k))$, in which $E(\cdot)$ is an encoder network (augmented image mapped to vector) $P(\cdot)$ is a projection network (one vector mapped to another). $N_i = \{j \in I : \tilde{y}_j = \tilde{y}_i\}$ contains a set of indices of samples with label $y_i$. Including more positive samples into the set $N_i$ leads to improved results.
+
+According to their experiments, supervised contrastive loss:
+
+*   does outperform the base cross entropy, but only by a small amount.
+*   outperforms the cross entropy on robustness benchmark (ImageNet-C, which applies common naturally occuring perturbations such as noise, blur and contrast changes to the ImageNet dataset).
+*   is less sensitive to hyperparameter changes.
+
+#### Language: Sentence Embedding
+
+##### Text Augmentation
+
+Most contrastive methods in vision applications depend on creating an augmented version of each image. However, it is more challenging to construct text augmentation which does not alter the semantics of a sentence. In this section we look into three approaches for augmenting text sequences, including lexical edits, back-translation and applying cutoff or dropout.
+
+###### Lexical Edits
+
+**EDA** (*Easy Data Augmentation*; [Wei & Zou 2019](https://arxiv.org/abs/1901.11196)) defines a set of simple but powerful operations for text augmentation. Given a sentence, EDA randomly chooses and applies one of four simple operations:
+
+1. Synonym replacement (SR): Replace $$n$$ random non-stop words with their synonyms.
+2. Random insertion (RI): Place a random synonym of a randomly selected non-stop word in the sentence at a random position.
+3. Random swap (RS): Randomly swap two words and repeat $$n$$ times.
+4. Random deletion (RD): Randomly delete each word in the sentence with probability $$p$$ .
+
+where $p = \alpha$ and $n = \alpha \times \text{sentence\_length}$, with the intuition that longer sentences can absorb more noise while maintaining the original label. The hyperparameter $\alpha$ roughly indicates the percent of words in one sentence that may be changed by one augmentation.
+
+EDA is shown to improve the classification accuracy on several classification benchmark datasets compared to baseline without EDA. The performance lift is more significant on a smaller training set. All the four operations in EDA help improve the classification accuracy, but get to optimal at different $\alpha$'s.
+
+<img src="./Machine-Learning/image-20251220035859898.png" alt="image-20251220035859898" style="zoom: 50%;" />
+
+In **Contextual Augmentation** ([Sosuke Kobayashi, 2018](https://arxiv.org/abs/1805.06201)), new substitutes for word $w_i$ at position $i$ can be smoothly sampled from a given probability distribution, $p(\cdot \mid S \setminus \{w_i\})$, which is predicted by a bidirectional LM like BERT.
+
+###### Back-translation
+
+**CERT** (*Contrastive self-supervised Encoder Representations from Transformers*; [Fang et al. (2020)](https://arxiv.org/abs/2005.12766); [code](https://github.com/UCSD-AI4H/CERT)) generates augmented sentences via **back-translation**. Various translation models for different languages can be employed for creating different versions of augmentations. Once we have a noise version of text samples, many contrastive learning frameworks introduced above, such as [MoCo](https://lilianweng.github.io/posts/2021-05-31-contrastive/#moco--moco-v2), can be used to learn sentence embedding.
+
+###### Dropout and Cutoff
+
+[Shen et al. (2020)](https://arxiv.org/abs/2009.13818) proposed to apply **Cutoff** to text augmentation, inspired by [cross-view training](https://lilianweng.github.io/posts/2019-01-31-lm/#cross-view-training). They proposed three cutoff augmentation strategies:
+
+1. *Token cutoff* removes the information of a few selected tokens. To make sure there is no data leakage, corresponding tokens in the input, positional and other relevant embedding matrices should all be zeroed out.,
+2. *Feature cutoff* removes a few feature columns.
+3. *Span cutoff* removes a continuous chunk of texts.
+
+<img src="./Machine-Learning/image-20251220041052551.png" alt="image-20251220041052551" style="zoom:50%;" />
+
+Multiple augmented versions of one sample can be created. When training, [Shen et al. (2020)](https://arxiv.org/abs/2009.13818) applied an additional KL-divergence term to measure the consensus between predictions from different augmented samples.
+
+**SimCSE** ([Gao et al. 2021](https://arxiv.org/abs/2104.08821); [code](https://github.com/princeton-nlp/SimCSE)) learns from unsupervised data by predicting a sentence from itself with only **dropout** noise. In other words, they treat dropout as data augmentation for text sequences. A sample is simply fed into the encoder twice with different dropout masks and these two versions are the positive pair where the other in-batch samples are considered as negative pairs. It feels quite similar to the cutoff augmentation, but dropout is more flexible with less well-defined semantic meaning of what content can be masked off.
+
+![image-20251220041252149](./Machine-Learning/image-20251220041252149.png)
+
+They ran experiments on 7 STS (Semantic Text Similarity) datasets and computed cosine similarity between sentence embeddings. They also tried out an optional MLM auxiliary objective loss to help avoid catastrophic forgetting of token-level knowledge. This aux loss was found to help improve performance on transfer tasks, but a consistent drop on the main STS tasks.
+
+<img src="./Machine-Learning/image-20251220041507157.png" alt="image-20251220041507157" style="zoom:67%;" />
+
+##### Supervision from NLI
+
+**The pre-trained BERT sentence embedding without any fine-tuning has been found to have poor performance for semantic similarity tasks**. Instead of using the raw embeddings directly, we need to refine the embedding with further fine-tuning.
+
+**Natural Language Inference (NLI)** tasks are the main data sources to provide supervised signals for learning sentence embedding; such as [SNLI](https://nlp.stanford.edu/projects/snli/), [MNLI](https://cims.nyu.edu/~sbowman/multinli/), and [QQP](https://www.kaggle.com/c/quora-question-pairs).
+
+###### Sentence-BERT
+
+**SBERT (Sentence-BERT)** ([Reimers & Gurevych, 2019](https://arxiv.org/abs/1908.10084)) relies on siamese and triplet network architectures to learn sentence embeddings such that the sentence similarity can be estimated by cosine similarity between pairs of embeddings. Note that learning SBERT depends on supervised data, as it is fine-tuned on several NLI datasets.
+
+They experimented with a few different prediction heads on top of BERT model:
+
+* **Softmax classification objective**: The classification head of the siamese network is built on the concatenation of two embeddings $f(\mathbf{x})$, $f(\mathbf{x}')$ and $|f(\mathbf{x}) - f(\mathbf{x}')|$. The predicted output is $\hat{y} = \text{softmax}(\mathbf{W}_t [f(\mathbf{x}); f(\mathbf{x}'); |f(\mathbf{x}) - f(\mathbf{x}')|])$. They showed that the most important component is the element-wise difference $|f(\mathbf{x}) - f(\mathbf{x}')|$.
+
+* **Regression objective**: 对应图片右侧的架构，主要用于**语义文本相似度 (STS)** 等回归任务。
+    *   **架构流程**:
+        1.  **Siamese 结构**: 两个句子 $x$ 和 $x'$ 分别输入到两个共享参数的 BERT 网络中。
+        2.  **Pooling**: 经过 BERT 输出后，通过 Pooling 层（通常是 **Mean Pooling**，实验证明比 Max Pooling 或 CLS token 效果更好）得到定长的句子向量 $u = f(x)$ 和 $v = f(x')$。
+        3.  **相似度计算**: 计算两个向量的**余弦相似度 (Cosine Similarity)**:
+            $$ \hat{y} = \cos(u, v) = \frac{u \cdot v}{\|u\| \cdot \|v\|} $$
+            输出值范围在 $[-1, 1]$ 之间。
+    *   **Loss 公式**: 使用**均方误差 (Mean Squared Error, MSE)** 作为损失函数，计算预测相似度 $\hat{y}$ 与真实标签相似度 $y$ 之间的差异：
+        $$ J = \frac{1}{N} \sum_{i=1}^{N} (\hat{y}_i - y_i)^2 = \frac{1}{N} \sum_{i=1}^{N} (\cos(f(x_i), f(x'_i)) - y_i)^2 $$
+        其中 $y_i$ 是数据集中标注的相似度分数（通常也归一化到 $[-1, 1]$ 或 $[0, 1]$）。
+
+* **Triplet objective**: $\max(0, |f(\mathbf{x}) - f(\mathbf{x}^+)| - |f(\mathbf{x}) - f(\mathbf{x}^-)| + \epsilon)$, where $\mathbf{x}, \mathbf{x}^+, \mathbf{x}^-$ are embeddings of the anchor, positive and negative sentences.
+
+In the experiments, which objective function works the best depends on the datasets, so there is no universal winner.
+
+<img src="./Machine-Learning/image-20251220041848074.png" alt="image-20251220041848074" style="zoom:50%;" />
+
+The [SentEval](https://github.com/facebookresearch/SentEval) library ([Conneau and Kiela, 2018](https://arxiv.org/abs/1803.05449)) is commonly used for evaluating the quality of learned sentence embedding. SBERT outperformed other baselines at that time (Aug 2019) on 5 out of 7 tasks.
+
+![image-20251220041906944](./Machine-Learning/image-20251220041906944.png)
+
+###### BERT-flow
+
+**Anisotropy Problem (各向异性问题)**
+
+预训练 BERT 学习到的 Embedding 空间通常表现出显著的**各向异性 (Anisotropy)**，即向量分布在一个狭窄的锥形 (Cone) 区域内，而不是均匀分布。这导致计算出的余弦相似度区分度不高。
+
+[Li et al. (2020)](https://arxiv.org/abs/2011.05864) 指出这与**词频偏差**密切相关：
+*   **高频词**: 聚集在**原点附近**。
+    *   *High-frequency words are close to the origin.*
+    *   原因：高频词出现在各种不同的上下文中，更新次数多且方向杂，导致其向量趋向于所有方向的平均（即原点）。
+*   **低频词**: 分布在**远离原点**的稀疏区域。
+    *   *Low-frequency ones are far away from the origin.*
+    *   原因：低频词往往存在“语义空洞”，即离自己语义相似的词也比较远。
+
+这种不均匀分布导致：即便两个词语义无关，只要词频相似，它们的距离也可能很近。
+
+The embedding representation space is deemed *isotropic* if embeddings are uniformly distributed on each dimension; otherwise, it is *anisotropic*. [Li et al, (2020)](https://arxiv.org/abs/2011.05864) showed that a pre-trained BERT learns a non-smooth *anisotropic* semantic space of sentence embeddings and thus leads to poor performance for text similarity tasks without fine-tuning. Empirically, they observed two issues with BERT sentence embedding: Word frequency biases the embedding space. High-frequency words are close to the origin, but low-frequency ones are far away from the origin. Low-frequency words scatter sparsely. The embeddings of low-frequency words tend to be farther to their $$k$$-NN neighbors, while the embeddings of high-frequency words concentrate more densely.
+
+**Solution**:
+**BERT-flow** ([Li et al, 2020](https://arxiv.org/abs/2011.05864); [code](https://github.com/bohanli/BERT-flow)) 通过引入 [normalizing flows](https://lilianweng.github.io/posts/2018-10-13-flow-models/#what-is-normalizing-flows).，将 BERT 的输出空间映射到一个标准的各向同性高斯分布 (Isotropic Gaussian Distribution)，从而校正空间分布，显著提升语义相似度计算的效果。
+
+Let $\mathcal{U}$ be the observed BERT sentence embedding space and $\mathcal{Z}$ be the desired latent space which is a standard Gaussian. Thus, $p_{\mathcal{Z}}$ is a Gaussian density function and $f_{\phi}: \mathcal{Z} \rightarrow \mathcal{U}$ is an invertible transformation:
+$$ \mathbf{z} \sim p_{\mathcal{Z}}(\mathbf{z}) \quad \mathbf{u} = f_{\phi}(\mathbf{z}) \quad \mathbf{z} = f_{\phi}^{-1}(\mathbf{u}) $$
+
+A flow-based generative model learns the invertible mapping function by maximizing the likelihood of $\mathcal{U}$'s marginal:
+$$ \max_{\phi} \mathbb{E}_{\mathbf{u}=\text{BERT}(s), s \sim \mathcal{D}} \left[ \log p_{\mathcal{Z}}(f_{\phi}^{-1}(\mathbf{u})) + \log \left| \det \frac{\partial f_{\phi}^{-1}(\mathbf{u})}{\partial \mathbf{u}} \right| \right] $$
+where $s$ is a sentence sampled from the text corpus $\mathcal{D}$. Only the flow parameters $\phi$ are optimized while parameters in the pretrained BERT stay unchanged.
+
+*   **Loss Function Analysis**:
+    The objective is to maximize the log-likelihood of the observed data: $\log p_{\mathcal{U}}(\mathbf{u})$. By change of variables formula:
+    $$ \log p_{\mathcal{U}}(\mathbf{u}) = \log p_{\mathcal{Z}}(f_{\phi}^{-1}(\mathbf{u})) + \log \left| \det \frac{\partial f_{\phi}^{-1}(\mathbf{u})}{\partial \mathbf{u}} \right| $$
+    *   **Prior Term ($\log p_{\mathcal{Z}}$)**: Since $p_{\mathcal{Z}}$ is a standard Gaussian $\mathcal{N}(0, I)$, this term is proportional to $-\frac{1}{2} \| \mathbf{z} \|^2$. Maximizing it encourages the mapped latent vectors $\mathbf{z}$ to be close to the origin (compact).
+    *   **Jacobian Term ($\log |\det J|$)**: This term accounts for the change in volume/density caused by the transformation. In architectures like **Glow** (used in BERT-flow), **the transformation is designed such that the Jacobian matrix is triangular**, making the determinant easy to compute (product of diagonal elements).
+    *   **Motivation**:
+        *   **Anisotropy Correction**: It forces the irregular BERT embedding distribution to match a smooth, isotropic Gaussian distribution.
+        *   **Unsupervised**: No labels are needed; it purely optimizes the distribution shape.
+
+*   **Why Triangular Jacobian Matters?**
+    *   **Computational Efficiency**: Calculating the determinant of a general $D \times D$ matrix has a time complexity of $O(D^3)$. In high-dimensional spaces (like BERT embeddings with $D=768$), this is prohibitively expensive.
+    *   **Triangular Property**: If the Jacobian matrix $J$ is triangular (upper or lower), its determinant is simply the product of its diagonal elements: $\det J = \prod_{i} J_{ii}$.
+    *   **Log-Determinant**: $\log |\det J| = \sum_{i} \log |J_{ii}|$. This reduces the complexity to $O(D)$, making the training of deep flow models feasible.
+
+*   **Implementation with Affine Coupling (RealNVP/Glow)**
+    The **Affine Coupling Layer** is the key component that ensures the Jacobian is triangular. It splits the input dimensions into two parts ($x_a, x_b$) and applies an affine transformation to one part conditioned on the other.
+
+    **PyTorch Implementation**:
+    ```python
+    import torch
+    import torch.nn as nn
+    
+    class AffineCoupling(nn.Module):
+        def __init__(self, dim, hidden_dim=512):
+            super().__init__()
+            # Neural network to predict scale (s) and translation (t)
+            # Input: x_a (dim/2), Output: s, t (dim/2 each)
+            self.net = nn.Sequential(
+                nn.Linear(dim // 2, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, dim) # Outputs concatenated s and t
+            )
+    
+        def forward(self, x):
+            # x: [batch_size, dim]
+            # 1. Split input
+            x_a, x_b = x.chunk(2, dim=1)
+    
+            # 2. Predict parameters (s, t) based on x_a
+            # s and t can be arbitrarily complex functions of x_a
+            params = self.net(x_a)
+            log_s, t = params.chunk(2, dim=1)
+            s = torch.sigmoid(log_s + 2) # Sigmoid+offset for stability
+    
+            # 3. Affine Transformation on x_b
+            # y_a = x_a (Identity)
+            # y_b = s * x_b + t
+            y_a = x_a
+            y_b = s * x_b + t
+            y = torch.cat([y_a, y_b], dim=1)
+    
+            # 4. Log Determinant (Sum of log diagonal elements)
+            # Jacobian is triangular, diagonal contains 1s (for y_a) and s (for y_b)
+            # log_det = sum(log(1)) + sum(log(s)) = sum(log(s))
+            log_det = torch.sum(torch.log(s), dim=1) 
+            
+            return y, log_det
+    
+    # Loss Calculation
+    def loss_function(z, log_det):
+        # 1. Prior Log-Likelihood: log p_Z(z)
+        # z ~ N(0, I) => log p(z) = -0.5 * z^2 - const
+        prior_ll = -0.5 * torch.sum(z ** 2, dim=1)
+        
+        # 2. Flow Log-Likelihood: log p_X(x) = log p_Z(z) + log_det
+        log_likelihood = prior_ll + log_det
+        
+        # 3. Minimize Negative Log-Likelihood
+        loss = -torch.mean(log_likelihood)
+        return loss
+    ```
+
+BERT-flow was shown to improve the performance on most STS tasks either with or without supervision from NLI datasets. Because learning normalizing flows for calibration does not require labels, it can utilize the entire dataset including validation and test sets.
+
+<img src="./Machine-Learning/image-20251222043648433.png" alt="image-20251222043648433" style="zoom:67%;" />
+
+###### Whitening Operation
+
+[Su et al. (2021)](https://arxiv.org/abs/2103.15316) applied **whitening** operation to improve the [isotropy](https://lilianweng.github.io/posts/2021-05-31-contrastive/#isotropy) of the learned representation and also to reduce the dimensionality of sentence embedding.
+
+<img src="./Machine-Learning/image-20251222174902209.png" alt="image-20251222174902209" style="zoom:50%;" />
+
+They transform the mean value of the sentence vectors to 0 and the covariance matrix to the identity matrix. Given a set of samples $\{\mathbf{x}_i\}_{i=1}^N$, let $\tilde{\mathbf{x}}_i$ and $\tilde{\Sigma}$ be the transformed samples and corresponding covariance matrix:
+
+$$
+\mu = \frac{1}{N} \sum_{i=1}^N \mathbf{x}_i \quad \Sigma = \frac{1}{N} \sum_{i=1}^N (\mathbf{x}_i - \mu)^\top (\mathbf{x}_i - \mu)
+$$
+
+$$
+\tilde{\mathbf{x}}_i = (\mathbf{x}_i - \mu)W \quad \tilde{\Sigma} = W^\top \Sigma W = I \text{ thus } \Sigma = (W^{-1})^\top W^{-1}
+$$
+
+If we get SVD decomposition of $\Sigma = U \Lambda U^\top$, we will have $W^{-1} = \sqrt{\Lambda} U^\top$ and $W = U \sqrt{\Lambda^{-1}}$. Note that within SVD, $U$ is an orthogonal matrix with column vectors as eigenvectors and $\Lambda$ is a diagonal matrix with all positive elements as sorted eigenvalues.
+
+A dimensionality reduction strategy can be applied by only taking the first $k$ columns of $W$, named `Whitening -k`.
+
+Whitening operations were shown to outperform BERT-flow and achieve SOTA with 256 sentence dimensionality on many STS benchmarks, either with or without NLI supervision.
+
+##### Unsupervised Sentence Embedding Learning
+
+###### Context Prediction: Quick-Thought
+
+**Quick-Thought (QT) vectors** ([Logeswaran & Lee, 2018](https://arxiv.org/abs/1803.02893)) formulate sentence representation learning as a *classification* problem: Given a sentence and its context, a classifier distinguishes context sentences from other contrastive sentences based on their vector representations ([“cloze test”](https://lilianweng.github.io/posts/2019-01-31-lm/#MLM)). 
+
+**传统瓶颈**：生成式模型（如 Skip-Thought）需逐词重建句子，每一步都要在庞大的**词表空间（Vocabulary Size）**上计算 Softmax，计算量巨大。
+
+*   **QT 改进**：将任务转化为**判别式（Discriminative）**问题，即从当前 Batch 的候选中识别正确的上下文句子。
+*   **加速原理**：分类类别数从词表大小（数万）降低为 **Batch Size**（几百），从而移除了高维 Softmax 带来的计算瓶颈。
+
+<img src="./Machine-Learning/image-20251222180507046.png" alt="image-20251222180507046" style="zoom:50%;" />
+
+Let $f(.)$ and $g(.)$ be two functions that encode a sentence $s$ into a fixed-length vector. Let $C(s)$ be the set of sentences in the context of $s$ and $S(s)$ be the set of candidate sentences including only one sentence $s_c \in C(s)$ and many other non-context negative sentences. Quick Thoughts model learns to optimize the probability of predicting the only true context sentence $s_c \in S(s)$. It is essentially NCE loss when considering the sentence $(s, s_c)$ as the positive pairs while other pairs $(s, s')$ where $s' \in S(s), s' \neq s_c$ as negatives.
+
+$$
+\mathcal{L}_{\text{QT}} = - \sum_{s \in \mathcal{D}} \sum_{s_c \in C(s)} \log p(s_c|s, S(s)) = - \sum_{s \in \mathcal{D}} \sum_{s_c \in C(s)} \log \frac{\exp(f(s)^\top g(s_c))}{\sum_{s' \in S(s)} \exp(f(s)^\top g(s'))}
+$$
+
+###### Mutual Information Maximization: IS-BERT
+
+**IS-BERT (Info-Sentence BERT)** ([Zhang et al. 2020](https://arxiv.org/abs/2009.12061); [code](https://github.com/yanzhangnlp/IS-BERT)) adopts a self-supervised learning objective based on *mutual information maximization* to learn good sentence embeddings in the *unsupervised* manners.
+
+<img src="./Machine-Learning/image-20251222181219364.png" alt="image-20251222181219364" style="zoom:50%;" />
+
+IS-BERT works as follows:
+
+1. Use BERT to encode an input sentence $s$ to a token embedding of length $l$, $\mathbf{h}_{1:l}$.
+2. Then apply 1-D conv net with different kernel sizes (e.g. 1, 3, 5) to process the token embedding sequence to capture the n-gram local contextual dependencies: $\mathbf{c}_i = \text{ReLU}(\mathbf{w} \cdot \mathbf{h}_{i:i+k-1} + \mathbf{b})$. The output sequences are padded to stay the same sizes of the inputs.
+3. The final local representation of the $i$-th token $\mathcal{F}_{\theta}^{(i)}(\mathbf{x})$ is the concatenation of representations of different kernel sizes.
+4. The global sentence representation $\mathcal{E}_{\theta}(\mathbf{x})$ is computed by applying a mean-over-time pooling layer on the token representations $\mathcal{F}_{\theta}(\mathbf{x}) = \{\mathcal{F}_{\theta}^{(i)}(\mathbf{x}) \in \mathbb{R}^d\}_{i=1}^l$.
+
+Since the mutual information estimation is generally intractable for continuous and high-dimensional random variables, IS-BERT relies on the Jensen-Shannon estimator (Nowozin et al., 2016, Hjelm et al., 2019) to maximize the mutual information between $\mathcal{E}_{\theta}(\mathbf{x})$ and $\mathcal{F}_{\theta}^{(i)}(\mathbf{x})$.
+
+$$
+I_{\omega}^{\text{JSD}}(\mathcal{F}_{\theta}^{(i)}(\mathbf{x}); \mathcal{E}_{\theta}(\mathbf{x})) = \mathbb{E}_{\mathbf{x} \sim P}[-\text{sp}(-T_{\omega}(\mathcal{F}_{\theta}^{(i)}(\mathbf{x}); \mathcal{E}_{\theta}(\mathbf{x})))] - \mathbb{E}_{\mathbf{x} \sim P, \mathbf{x}' \sim \tilde{P}}[\text{sp}(T_{\omega}(\mathcal{F}_{\theta}^{(i)}(\mathbf{x}'); \mathcal{E}_{\theta}(\mathbf{x})))]
+$$
+
+where $T_{\omega} : \mathcal{F} \times \mathcal{E} \to \mathbb{R}$ is a learnable network with parameters $\omega$, generating discriminator scores. The negative sample $\mathbf{x}'$ is sampled from the distribution $\tilde{P} = P$. And $\text{sp}(x) = \log(1 + e^x)$ is the softplus activation function.
+
+The unsupervised numbers on SentEval with IS-BERT outperforms most of the unsupervised baselines (Sep 2020), but unsurprisingly weaker than supervised runs. When using labelled NLI datasets, IS-BERT produces results comparable with SBERT (See Fig. 25 & 30).
+
+##### Query2Doc
+
+* For training **dense retrievers**, several factors can influence the final performance:
+  * **Hard negative mining** (Xiong et al., 2021)
+  * **Intermediate pretraining** (Gao and Callan, 2021)
+  * **Knowledge distillation** from a cross-encoder based re-ranker (Qu et al., 2021)
+* In this paper, we investigate two settings to gain a more comprehensive understanding of our method.
+  * The first setting is training **DPR** (Karpukhin et al., 2020) models initialized from BERTbase with BM25 hard negatives only.
+* <img src="Machine-Learning/image-20241117211622999.png" alt="image-20241117211622999" style="zoom:50%;" />
+
+### 无监督学习
+
+
 
 
 

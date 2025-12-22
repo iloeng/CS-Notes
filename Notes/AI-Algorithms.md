@@ -98,6 +98,11 @@
   * ![image-20251001201117306](./AI-Algorithms/image-20251001201117306.png)
 * 核心思路：
   * $$L(N,D)=AN^{-\alpha}+BD^{\beta}+E$$
+
+#### 数据范式演进 (Data Paradigm)
+
+* **数据受限 (Data Constrained)**：随着模型规模增长，业界正从“数据无限”进入“数据受限”阶段。
+* **合成数据 (Synthetic Data)**：Gemini 3 等前沿模型开始大量使用合成数据作为 Scaling 的关键燃料，以突破自然数据枯竭的瓶颈。
     * Chinchilla-optimal
     * loss和参数量呈现对数线性下降
     * $$D/N \approx 20$$
@@ -2078,7 +2083,7 @@ utilize MTP to improve training.
 * Distillation from DeepSeek-R1
 * Self-Rewarding
 
-# DeepSeek-OCR todo
+## DeepSeek-OCR todo
 
 > https://github.com/deepseek-ai/DeepSeek-OCR/blob/main/DeepSeek_OCR_paper.pdf
 
@@ -2088,22 +2093,9 @@ utilize MTP to improve training.
 
 https://ezml.io/blog/beyond-clip-the-future-of-multimodal-retrieval-with-visualized-bge-vista-and-magiclens
 
-### CLIP
+### CLIP -> 参考 MLLM
 
-**What is CLIP?**
 
-CLIP, developed by OpenAI, is a model designed to understand and relate images and text through contrastive learning. It learns to match images with their corresponding text descriptions and to differentiate these pairs from mismatches, enabling it to perform various tasks, from image classification to zero-shot learning.
-
-**How Does CLIP Work?**
-
-- **Contrastive Learning:** CLIP is trained on a vast dataset of image-text pairs, learning to create a shared embedding space where both images and texts are represented as vectors. The model maximizes the similarity of correct image-text pairs and minimizes it for incorrect pairs.
-- **Joint Embedding Space:** CLIP’s ability to create a joint embedding space for images and text allows it to generalize across different tasks and domains.
-
-**Limitations of CLIP**
-
-- **Fine-Grained Visual Understanding:** CLIP struggles with fine-grained visual details due to its broad learning approach. It can miss subtle distinctions within images that are critical for certain tasks.
-- **Imprecise Multimodal Alignment:** The alignment between text and images can be imprecise, especially when dealing with complex or nuanced relationships.
-- **Retrieval Performance Variability:** CLIP's performance can vary depending on the specificity of the query and the image, sometimes leading to suboptimal results.
 
 ### CoCa
 
@@ -2193,6 +2185,22 @@ https://arxiv.org/pdf/2506.05176
     - InfoNCE loss 的目标是最大化正样本对的相似度，同时最小化负样本对的相似度。
     - 负样本包括硬负样本、批内负样本等
     - ![image-20250708163208666](./AI-Algorithms/image-20250708163208666.png)
+
+## Seed 1.8 通用 Agent 模型
+
+- **简介**：通用 Agent 模型，集搜索、代码与 GUI 能力于一体，原生多模态（图文）输入与界面交互，强调低延迟与高效响应。被评测视为“小号 Gemini”，重回国产第一梯队。
+- **核心能力**：
+  - **高效推理**：Medium 档位仅需 5K Token 即可达到前代 15K Token 的智力水平，性价比极高；High 档位通过更多思考预算逼近北美头部模型。
+  - **多模态融合**：坚持统一多模态路线，视觉理解与多模态交互能力优秀。
+- **能力改进**：
+  - **长链推理**：相比 1.6 版本 CoT 专注力翻倍，能逐步验证排除分支，适合解决复杂问题（虽然仍偏向暴力穷举，硬智力相比 Gemini 3 Pro 仍有差距）。
+  - **信息提取**：精度高，但 Token 消耗大（需在 CoT 中完整复述细节），强依赖推理模式。
+- **不足之处**：
+  - **编程能力**：虽有起色但工程思维不足，难以作为复杂工程的主模型。
+  - **多轮对话**：超过 10 轮后思路易发散，无法稳定跟踪任务目标。
+  - **空间智力**：缺乏训练，处理复杂空间形状问题能力较弱。
+- **评测亮点**：GUI Agent 能力在电脑/网页/移动端环境中表现可靠；在 BrowseComp-en 等基准中处于第一梯队。
+- **参考**：[Model Card](https://seed.bytedance.com/seed1_8)；[原文](https://mp.weixin.qq.com/s/N2TkulYSo5SeT9tlu-62jw)；[第三方测评](https://mp.weixin.qq.com/s/In1w4lIO-Jo7BxWXly1AFg)
 
 ## Datasets and Evaluation
 
@@ -2300,6 +2308,32 @@ https://github.com/huggingface/peft
 * LoRA implementation 
   * https://lightning.ai/lightning-ai/studios/code-lora-from-scratch?view=public&section=featured
   * 效果比只训练最后两层好
+
+### Mid Training
+
+#### Pre/Mid/RL 在推理LM中的作用（Interplay）
+
+> - On the Interplay of Pre-Training, Mid-Training, and RL on Reasoning Language Models（CMU LTI）
+> - 链接：https://arxiv.org/html/2512.07783v1
+
+* 背景：现代RL显著提升LM推理，但是否真正超越预训练能力存在争议；预训练语料不透明使因果归因困难。
+* 方法：构建可控框架，用合成推理任务（显式原子操作、可解析步骤轨迹）与系统化分布操控，沿两条轴线评估：外推泛化（更复杂组合）与上下文泛化（跨表层语境）。
+* 术语：OOD（Out-of-Distribution）指超出模型训练/假设数据分布的样本或任务；与 ID（In-Distribution）相对。
+* 术语：长尾语境与“暴露”比例
+  - 长尾语境：在预训练语料中出现频率低但对目标任务关键的语境（如法律文本、低资源语言、特定格式/风格、长链路推理样式、程序化符号操作）。
+  - 暴露比例 $$p_{exposure}\in[0,1]$$：指预训练数据中属于目标长尾语境的样本占比（按样本数、token数或任务实例数度量）。
+  - 近零暴露：$$p_{exposure}\approx0\%$$（如 <0.1%），模型几乎未见该语境；RL 难以迁移。
+  - 稀疏暴露：$$p_{exposure}\geq1\%$$ 但远小于主分布，模型具备最低限度的语境先验；RL 可稳健迁移。
+  - 最小但充分暴露：使模型在预训练阶段获得必要的语境先验与表示支撑，达到 RL 可转移的临界点（经验阈值约在 ≥1%）。
+* 结论1（能力增益的前提）：只有当预训练留有“能力余量”且RL样本定位于模型能力边界（略难但可达）时，RL才产生真实增益；若任务已被预训练覆盖或过于OOD，增益消失（最高可达 +42% pass@128）。
+* 结论2（上下文泛化的最小暴露）：上下文泛化需要预训练阶段对长尾语境的最小但充分暴露；近零暴露时RL失败，稀疏暴露（≥1%）即能让RL稳健迁移（最高 +60% pass@128）。
+* 结论3（固定算力下的中期训练价值）：在固定计算预算下，引入中期训练（mid-training，亦称CPT）作为分布桥接显著提升OOD推理；“mid + RL”较“仅RL”在 OOD-hard 上提升约 +10.8%。
+* 结论4（过程级奖励）：过程级奖励（奖励推理步骤正确性）减少 reward hacking，提升推理一致性与保真度。
+* 实践建议：
+  - 难度校准：采样位于能力边界的RL数据，避免过易/过难。
+  - 语境暴露：保证预训练中对关键语境≥1%的稀疏覆盖。
+  - 预算分配：**边界内任务更多预算给mid-training；边界外难题更多预算给RL**。
+  - 奖励设计：采用过程级奖励以减少投机取巧。
 
 
 
@@ -2596,7 +2630,61 @@ TODO [前阿里、字节大模型带头人杨红霞创业：大模型预训练�
 
 #### 大规模图文Token对齐模型 CLIP
 
+**What is CLIP?**
+
+**CLIP** (*Contrastive Language-Image Pre-training*; [Radford et al. 2021](https://arxiv.org/abs/2103.00020)) jointly trains a text encoder and an image feature extractor over the pretraining task that predicts which caption goes with which image.
+
+CLIP, developed by OpenAI, is a model designed to understand and relate images and text through contrastive learning. It learns to match images with their corresponding text descriptions and to differentiate these pairs from mismatches, enabling it to perform various tasks, from image classification to zero-shot learning.
+
+**How Does CLIP Work?**
+
+- **Contrastive Learning:** CLIP is trained on a vast dataset of image-text pairs, learning to create a shared embedding space where both images and texts are represented as vectors. The model maximizes the similarity of correct image-text pairs and minimizes it for incorrect pairs.
+- **Joint Embedding Space:** CLIP’s ability to create a joint embedding space for images and text allows it to generalize across different tasks and domains.
+
+**Limitations of CLIP**
+
+- **Fine-Grained Visual Understanding:** CLIP struggles with fine-grained visual details due to its broad learning approach. It can miss subtle distinctions within images that are critical for certain tasks.
+- **Imprecise Multimodal Alignment:** The alignment between text and images can be imprecise, especially when dealing with complex or nuanced relationships.
+- **Retrieval Performance Variability:** CLIP's performance can vary depending on the specificity of the query and the image, sometimes leading to suboptimal results.
+
 ![image-20241207210538634](./AI-Algorithms/image-20241207210538634.png)
+
+Given a batch of $N$ (image, text) pairs, CLIP computes the dense cosine similarity matrix between all $N \times N$ possible (image, text) candidates within this batch. The text and image encoders are jointly trained to maximize the similarity between $N$ correct pairs of (image, text) associations while minimizing the similarity for $N(N-1)$ incorrect pairs via a symmetric cross entropy loss over the dense matrix.
+
+See the numpy-like pseudo code for CLIP in:
+
+```python
+# image_encoder - ResNet or Vision Transformer
+# text_encoder  - CBOW or Text Transformer
+# I[n, h, w, c] - minibatch of aligned images
+# T[n, l]       - minibatch of aligned texts
+# W_i[d_i, d_e] - learned proj of image to embed
+# W_t[d_t, d_e] - learned proj of text to embed
+# t             - learned temperature parameter
+
+# extract feature representations of each modality
+I_f = image_encoder(I) #[n, d_i]
+T_f = text_encoder(T)  #[n, d_t]
+
+# joint multimodal embedding [n, d_e]
+I_e = l2_normalize(np.dot(I_f, W_i), axis=1)
+T_e = l2_normalize(np.dot(T_f, W_t), axis=1)
+
+# scaled pairwise cosine similarities [n, n]
+logits = np.dot(I_e, T_e.T) * np.exp(t)
+
+# symmetric loss function
+labels = np.arange(n)
+loss_i = cross_entropy_loss(logits, labels, axis=0)
+loss_t = cross_entropy_loss(logits, labels, axis=1)
+loss = (loss_i + loss_t) / 2
+```
+
+Compared to other methods above for learning good visual representation, what makes CLIP really special is ***“the appreciation of using natural language as a training signal”***. It does demand access to supervised dataset in which we know which text matches which image. It is trained on 400 million (text, image) pairs, collected from the Internet. The query list contains all the words occurring at least 100 times in the English version of Wikipedia. Interestingly, they found that Transformer-based language models are 3x slower than a bag-of-words (BoW) text encoder at zero-shot ImageNet classification. Using contrastive objective instead of trying to predict the exact words associated with images (i.e. a method commonly adopted by image caption prediction tasks) can further improve the data efficiency another 4x.
+
+<img src="./AI-Algorithms/image-20251220033339399.png" alt="image-20251220033339399" style="zoom:67%;" />
+
+CLIP produces good visual representation that can non-trivially transfer to many CV benchmark datasets, achieving results competitive with supervised baseline. Among tested transfer tasks, CLIP struggles with very fine-grained classification, as well as abstract or systematic tasks such as counting the number of objects. The transfer performance of CLIP models is smoothly correlated with the amount of model compute.
 
 ![image-20241207210618154](./AI-Algorithms/image-20241207210618154.png)
 
@@ -2685,6 +2773,18 @@ Q-Former 通过两阶段训练实现图文对齐，每个阶段使用不同的�
 * Gemini：原生多模态大模型
 
 ![image-20241207211915709](./AI-Algorithms/image-20241207211915709.png)
+
+* Gemini 3
+  * **Reference**: [Gemini3预训练负责人访谈](https://mp.weixin.qq.com/s/3dpZPC1r2U1dp-YuiP8lng)
+  * **模型架构**：
+    * **Transformer MoE**：核心架构未变，强调模块化复用与组合。
+    * **非单一突破**：性能跃迁是大中小多重因素（旋钮微调）叠加及大规模团队协作改进的累积。
+  * **系统工程**：
+    * **研究即工程**：构建围绕神经网络的**复杂系统**，边界模糊化。
+    * **Pre+Post**：核心优势源于“更好的预训练”叠加“更好的后训练”（Post-training，如RLHF/RLAIF）。
+  * **趋势观点**：
+    * **数据范式**：从“无限数据”进入**“数据受限”**阶段，**合成数据**（Synthetic Data）成为Scaling关键燃料。
+    * **Scaling Law**：短期内（1年+）持续有效，Benchmark难度提升但模型智能仍在增长。
 
 * GPT-4o
   * GPT 4o本质上是要探索不同模态相互融合的大一统模型应该怎么做的问题，对于提升大模型的智力水平估计帮助不大
@@ -2952,7 +3052,7 @@ Q-Former 通过两阶段训练实现图文对齐，每个阶段使用不同的�
   * LLM的发展触发具身智能的创业潮
   * AlphaGo，MCTS是在连续空间内，机器人也在连续空间内决策，启发了机器人
 
-##### ByteDance GR-3
+### ByteDance GR-3
 
 > 来源：[写在GR-3之后 - 知乎](https://zhuanlan.zhihu.com/p/1931870031035229302)
 
@@ -2969,6 +3069,32 @@ Q-Former 通过两阶段训练实现图文对齐，每个阶段使用不同的�
         *   **三要素**: **本体 (Embodiment)**、**模型 (Model)**、**数据 (Data)**，三者需互相依赖、共同迭代。
         *   **当前短板**: **模型和数据**。文章犀利地指出，当前机器人难以胜任各类任务的最大短板是“**脑子笨**”。一个核心论据是：人类远程遥操作机器人的能力远超任何自主模型。
         *   **对本体设计的启示**: 机器人本体的设计不应“孤立”进行，而要与当前模型和数据的能力相匹配。过于超前的本体在“笨脑子”的驱动下也无法发挥价值。
+
+
+### DexGraspVLA：共享自主与VLA的灵巧抓取范式
+
+* 概述：字节跳动 Seed 团队提出的层级式 VLA（Vision-Language-Action）框架，结合共享自主采集与扩展触觉，解决数据采集瓶颈与泛化难题。
+* 共享自主采集（Human-in-the-loop）
+  - 人控机械臂 6-DoF，AI 控灵巧手 12-DoF；采集效率≈110条/小时，开发周期≈1天。
+  - 失败纠正闭环：失败时人类介入，系统自动积累“难例”，持续提升策略稳健性。
+  - ![image-20251218202650427](./AI-Algorithms/image-20251218202650427.png)
+* 两阶段训练（AI 副驾驶）
+  - 盲抓策略：仅依赖触觉，实现从纸杯到 1.2kg 重物的鲁棒抓取。
+  - 多模态融合：视觉+语言+双触觉特征，形成域不变表示，降低分布偏移后用模仿学习稳定训练。
+* 特征增强与臂手解耦
+  - 臂手动作解耦并融合，整体成功率由 88%→95%；遮挡场景从 19%→58%。
+* 触觉的重要性（XHAND）
+  - 无触觉 21%→单触觉 70%→双触觉 90%，触觉显著提升抓取与接触状态估计。
+* 泛化与跨硬件迁移
+  - 杂乱场景成功率≈95.5%，新物体零样本泛化≈85.6%。
+  - 跨硬件迁移：零样本到 RY-H2 仍≈81% 成功率。
+* 能力特性
+  - 长时序自然语言指令执行、对抗性物体与人为扰动鲁棒、失败恢复。
+* 关键设计洞察
+  - 用基础模型迭代将多样语言与视觉输入映射到域不变表示，再用模仿学习高效泛化。
+* 引用
+  - DexGraspVLA: A Vision-Language-Action Framework Towards General Dexterous Grasping
+  - 链接：https://arxiv.org/html/2502.20900v5
 
 
 
