@@ -1525,7 +1525,42 @@ A dimensionality reduction strategy can be applied by only taking the first $k$ 
 
 Whitening operations were shown to outperform BERT-flow and achieve SOTA with 256 sentence dimensionality on many STS benchmarks, either with or without NLI supervision.
 
-##### Unsupervised Sentence Embedding Learning
+##### Query2Doc
+
+* For training **dense retrievers**, several factors can influence the final performance:
+  * **Hard negative mining** (Xiong et al., 2021)
+  * **Intermediate pretraining** (Gao and Callan, 2021)
+  * **Knowledge distillation** from a cross-encoder based re-ranker (Qu et al., 2021)
+* In this paper, we investigate two settings to gain a more comprehensive understanding of our method.
+  * The first setting is training **DPR** (Karpukhin et al., 2020) models initialized from BERTbase with BM25 hard negatives only.
+* <img src="Machine-Learning/image-20241117211622999.png" alt="image-20241117211622999" style="zoom:50%;" />
+
+### 无监督学习
+
+#### Contrastive Self-Supervised Learning (对比自监督学习)
+
+对比学习（Contrastive Learning）通过构建正负样本对，利用 InfoNCE 等损失函数拉近正样本、推开负样本，从而在无监督或自监督的情况下学习高质量的特征表示。这种范式已成为无监督学习的主流方法。
+
+##### Vision: SimCLR & MoCo
+
+*   **核心思想**: 利用数据增强（Data Augmentation）构造正样本对（同一图片的不同视图），将其他图片作为负样本。
+*   **SimCLR**: 强调强数据增强（Strong Augmentation）和大 Batch Size 的重要性，直接在当前 Batch 内计算负例。
+*   **MoCo (Momentum Contrast)**: 引入动量更新的 Encoder 和 Memory Bank（队列）来维护大量的负样本，解决了 Batch Size 的限制，使负例分布更平滑。
+*   *详细原理与损失函数推导请参考上文 [Contrastive Learning](#contrastive-learning) 章节。*
+
+##### Multimodal: CLIP (Contrastive Language-Image Pre-training)
+
+*   **简介**: OpenAI 提出的多模态预训练模型，在大规模（4亿对）图文数据集上进行训练。
+*   **机制**: 联合训练图像编码器和文本编码器，将图像和对应的文本描述映射到共享的嵌入空间。使用 InfoNCE Loss 最大化正确图文对的余弦相似度。
+*   **意义**: 虽然利用了文本作为弱监督信号，但其无需人工标注类别标签（Zero-shot），具有极强的泛化能力，是连接视觉与语言的重要桥梁。
+
+##### Recommendation: Semantic-aware Contrastive Learning (SCL)
+
+*   **场景**: 推荐系统中的召回/预训练阶段。
+*   **方法**: 利用用户的自然行为序列（如点击、购买）构建正样本对（Query-Item），利用 MoCo 策略维护负样本队列。
+*   **优化**: 引入 Triplet Loss 挖掘难负例（Hard Negative Mining），例如外观相似但品类不同的商品，提升表征的判别性。
+
+##### NLP: Unsupervised Sentence Embedding
 
 ###### Context Prediction: Quick-Thought
 
@@ -1557,7 +1592,7 @@ IS-BERT works as follows:
 3. The final local representation of the $i$-th token $\mathcal{F}_{\theta}^{(i)}(\mathbf{x})$ is the concatenation of representations of different kernel sizes.
 4. The global sentence representation $\mathcal{E}_{\theta}(\mathbf{x})$ is computed by applying a mean-over-time pooling layer on the token representations $\mathcal{F}_{\theta}(\mathbf{x}) = \{\mathcal{F}_{\theta}^{(i)}(\mathbf{x}) \in \mathbb{R}^d\}_{i=1}^l$.
 
-Since the mutual information estimation is generally intractable for continuous and high-dimensional random variables, IS-BERT relies on the Jensen-Shannon estimator (Nowozin et al., 2016, Hjelm et al., 2019) to maximize the mutual information between $\mathcal{E}_{\theta}(\mathbf{x})$ and $\mathcal{F}_{\theta}^{(i)}(\mathbf{x})$.
+Since the mutual information estimation is generally intractable for continuous and high-dimensional random variables, IS-BERT relies on the Jensen-Shannon estimator ([Nowozin et al., 2016](https://arxiv.org/abs/1606.00709), [Hjelm et al., 2019](https://arxiv.org/abs/1808.06670)) to maximize the mutual information between $\mathcal{E}_{\theta}(\mathbf{x})$ and $\mathcal{F}_{\theta}^{(i)}(\mathbf{x})$.
 
 $$
 I_{\omega}^{\text{JSD}}(\mathcal{F}_{\theta}^{(i)}(\mathbf{x}); \mathcal{E}_{\theta}(\mathbf{x})) = \mathbb{E}_{\mathbf{x} \sim P}[-\text{sp}(-T_{\omega}(\mathcal{F}_{\theta}^{(i)}(\mathbf{x}); \mathcal{E}_{\theta}(\mathbf{x})))] - \mathbb{E}_{\mathbf{x} \sim P, \mathbf{x}' \sim \tilde{P}}[\text{sp}(T_{\omega}(\mathcal{F}_{\theta}^{(i)}(\mathbf{x}'); \mathcal{E}_{\theta}(\mathbf{x})))]
@@ -1567,21 +1602,7 @@ where $T_{\omega} : \mathcal{F} \times \mathcal{E} \to \mathbb{R}$ is a learnabl
 
 The unsupervised numbers on SentEval with IS-BERT outperforms most of the unsupervised baselines (Sep 2020), but unsurprisingly weaker than supervised runs. When using labelled NLI datasets, IS-BERT produces results comparable with SBERT (See Fig. 25 & 30).
 
-##### Query2Doc
-
-* For training **dense retrievers**, several factors can influence the final performance:
-  * **Hard negative mining** (Xiong et al., 2021)
-  * **Intermediate pretraining** (Gao and Callan, 2021)
-  * **Knowledge distillation** from a cross-encoder based re-ranker (Qu et al., 2021)
-* In this paper, we investigate two settings to gain a more comprehensive understanding of our method.
-  * The first setting is training **DPR** (Karpukhin et al., 2020) models initialized from BERTbase with BM25 hard negatives only.
-* <img src="Machine-Learning/image-20241117211622999.png" alt="image-20241117211622999" style="zoom:50%;" />
-
-### 无监督学习
-
-
-
-
+![image-20251222230639068](./Machine-Learning/image-20251222230639068.png)
 
 ### NLP
 

@@ -759,7 +759,51 @@ rclone copy README.txt tos:ABC --s3-no-head-object
 
 ## DevOps --> 「Software-Engineering」
 
+### Cloud Native Dev Tools
 
+#### Nocalhost
+
+* **定位**：云原生开发环境工具，旨在解决微服务开发中的“Inner Loop”效率问题。
+* **核心功能**：
+  * **一键开发环境 (DevMode)**：直接在 K8s 集群中启动开发容器，替换原有的工作负载（Workload）。
+  * **实时代码同步**：本地代码修改后，自动同步到远程开发容器，无需重新构建镜像和部署。
+  * **调试支持**：支持远程调试（Remote Debug），直接在 IDE 中断点调试集群中的代码。
+* **Quick Start 流程**：
+  1.  **准备环境**：K8s 集群（Minikube/TKE/EKS 等）、kubectl、Helm、VS Code。
+  2.  **安装插件**：在 VS Code 中安装 Nocalhost 插件。
+  3.  **连接集群**：通过 KubeConfig 连接到目标 K8s 集群。
+  4.  **启动 DevMode**：
+      *   选择目标 Workload（如 Deployment）。
+      *   点击 "Start DevMode"，选择源码目录。
+      *   Nocalhost 会自动将本地源码同步到容器，并替换原有镜像为开发镜像。
+  5.  **开发与调试**：
+      *   修改本地代码 -> 自动同步 -> 容器内热加载/重启 -> 验证效果。
+      *   设置断点 -> 启动 Debug 模式 -> 触发请求 -> 命中本地断点。
+* **优势**：
+  *   **快**：告别 "Coding -> Build -> Push -> Pull -> Redeploy" 的漫长循环。
+  *   **省**：本地无需运行完整的微服务全家桶，只需运行当前开发的微服务，其他依赖复用集群环境。
+  *   **真**：开发环境即类生产环境，减少“本地能跑，上线就挂”的问题。
+
+#### KubeVPN
+
+* **定位**：轻量级的 Kubernetes 网络隧道工具，主打**双向网络互通**。
+* **核心功能**：
+  * **本地访问云端 (Local to Remote)**：本地开发机可直接访问 K8s 集群内的 Service/Pod IP，仿佛在同一内网。
+  * **云端访问本地 (Remote to Local)**：将本地服务注册到集群网络中，让集群内的其他 Pod 能访问本地启动的服务（便于联调）。
+  * **Docker 运行模式**：利用本地 Docker 运行远程镜像，但网络层无缝对接集群。
+* **Quick Start 流程**：
+  1.  **安装 Client**：本地安装 `kubevpn` 命令行工具。
+  2.  **安装 Server (可选)**：`helm install kubevpn`（若不手动安装，Client 连接时会自动安装）。
+  3.  **连接集群**：
+      ```bash
+      kubevpn connect --namespace test
+      ```
+  4.  **验证连接**：直接 `ping $POD_IP` 或 `curl $SERVICE_IP`。
+  5.  **开发/代理模式**：
+      *   `kubevpn proxy deployment/productpage`：劫持特定流量到本地。
+* **对比 Nocalhost**：
+  *   **KubeVPN** 更侧重于**网络层面的打通**（VPN 体验），适合需要频繁访问多个集群服务或需要被集群反向访问的场景。
+  *   **Nocalhost** 更侧重于**容器替换与文件同步**（IDE 体验），适合单个微服务的深度开发与代码热更。
 
 ## 云产品
 

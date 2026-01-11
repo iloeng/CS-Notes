@@ -259,11 +259,11 @@
 
 ### Seq2seq
 
-#### 为什么需要seq2seq建模
+#### 为什么需要 seq2seq 建模
 
 ![image-20251004025701238](./AI-Algorithms/image-20251004025701238.png)
 
-#### 从RNN到 Transformer
+#### 从 RNN 到 Transformer
 
 * 以RNN为核心的Encoder Decoder有以下几个重要的问题
   * 信息丢失：每次传递乘了系数，丢失前面的信息
@@ -271,7 +271,7 @@
     * the number of operations required to relate signals from two arbitrary input or output positions grows in the distance between positions, linearly for ConvS2S and logarithmically for ByteNet.
     * RNN是sequence-aligned实现
   * 不能并行计算，对GPU不友好
-* 以上问题，对**从序列到序列(seq2seq)的模型**很重要
+* 以上问题，对 **从序列到序列(seq2seq)的模型** 很重要
 
 ![image-20251005165225825](./AI-Algorithms/image-20251005165225825.png)
 

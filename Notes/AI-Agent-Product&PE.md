@@ -74,6 +74,7 @@
 
 ![structure](./AI-Agent-Product&PE/structure.png)
 
+
 ## ToC 产品
 
 ### 模型能力
@@ -2779,8 +2780,8 @@ file_extractor={".pdf": PyMuPDFReader()} # 指定特定的文件加载器
 from llama_index.readers.feishu_docs import FeishuDocsReader
 
 # 见说明文档
-app_id = "cli_a6f1c0fa1fd9d00b"
-app_secret = "dMXCTy8DGaty2xn8I858ZbFDFvcqgiep"
+app_id = ""
+app_secret = ""
 
 # https://agiclass.feishu.cn/docx/FULadzkWmovlfkxSgLPcE4oWnPf
 # 链接最后的 "FULadzkWmovlfkxSgLPcE4oWnPf" 为文档 ID 

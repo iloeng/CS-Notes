@@ -1320,6 +1320,24 @@ https://github.com/OpenBMB/XAgent
 
 
 
+#### AutoGLM & Security Risks
+> https://mp.weixin.qq.com/s/O_tysMMxYv9nkmcFCHC72g
+* **AutoGLM 技术原理**：
+    * 智谱开源的 AutoGLM 是一个能够模拟用户在手机上操作的 Agent。
+    * 它通过 ADB (Android Debug Bridge) 权限控制手机，并依赖第三方输入法 `AdbKeyBoard` 来实现文本输入（因为通过 ADB 直接输入中文存在限制）。
+* **AdbKeyBoard 安全风险**：
+    * **原理**：AdbKeyBoard 作为一个 Android 输入法，通过接收广播（Broadcast）来获取需要输入的文本。
+    * **广播机制的脆弱性**：
+        1. **无权限验证**：广播机制不需要特殊权限，任何 App 都可以发送和接收。
+        2. **任意输入**：恶意 App 可以发送广播，指示 AdbKeyBoard 输入任意内容。
+        3. **输入嗅探**：恶意 App 可以注册相同的 BroadcastReceiver，从而窃取所有通过 AdbKeyBoard 输入的内容（包括隐私信息）。
+        4. **输入拦截 (DoS)**：恶意 App 可以通过 `abortBroadcast()` 中断广播，导致 AutoGLM 无法输入。
+        5. **中间人攻击 (MITM)**：恶意 App 可以拦截广播，篡改内容后再发送给 AdbKeyBoard，导致 Agent 输入错误或恶意指令。
+* **结论**：
+    * 将依赖 AdbKeyBoard 的方案直接开放给普通用户使用是极不负责任的。
+    * 任何安装了此类 Agent（及 AdbKeyBoard）的手机，其输入内容都暴露在被所有 App 监听和篡改的风险下。
+    * AutoGLM 请求 ADB 权限本身也带来了巨大的攻击面（自动获得大量敏感权限）。
+
 ## Context-Engineering、记忆与个性化
 
 > TODO 上下文工程Intro https://mp.weixin.qq.com/s/3t4PjpZcMVU1wCO0ThUs2A
@@ -1564,6 +1582,35 @@ https://github.com/OpenBMB/XAgent
 
 **49.** 也有观点认为，虽然 Online Learning 具体实现形式尚不清晰，但研究方向已经较为明确，也就是**通过交互、探索（exploration）和奖励的自我收集（reward self-collection），让模型能够不断改进自身能力**。
 
+##### **案例：推荐系统中的延迟反馈与生存分析**
+
+**问题背景：延迟反馈 (Delayed Feedback)**
+在推荐系统（尤其是广告 CVR 预估）中，用户点击广告后，可能不会立即发生转化（Conversion），而是经过一段时间（几分钟到几天）才转化。
+*   **Online Learning 的困境**：如果模型只使用“已完成”的样本训练，会丢失最新的实时数据；如果将“点击但尚未转化”的样本直接标为负样本，会产生 **False Negative**。
+*   **Censored Data (删失数据)**：对于那些在观测时刻 $t$ 已经点击但尚未转化的样本，我们只知道它在 $[0, t]$ 期间未转化，但不知道未来是否会转化。这类样本被称为**右删失 (Right Censored)** 样本。
+
+**核心概念：生存分析 (Survival Analysis)**
+生存分析是统计学中用于分析“事件发生时间”的方法，完美契合延迟反馈问题。
+*   **$T$**: 从点击到转化的时间随机变量。
+*   **生存函数 (Survival Function) $S(t)$**:
+    $$ S(t) = P(T > t) $$
+    表示经过时间 $t$ 后仍未发生转化的概率。
+*   **风险函数 (Hazard Function) $h(t)$**:
+    $$ h(t) = \lim_{\Delta t \to 0} \frac{P(t \le T < t + \Delta t | T \ge t)}{\Delta t} = \frac{f(t)}{S(t)} $$
+    表示在时间 $t$ 瞬间发生转化的条件概率密度。
+
+**解决方案**
+利用生存分析改进 CVR 模型损失函数，同时利用“已转化”和“未转化（删失）”样本。
+假设样本 $i$ 的点击时间为 $c_i$，观测时间为 $o_i$，如果发生了转化，转化时间为 $t_i$。
+*   **已转化样本 (Uncensored)**: 发生了转化，持续时间 $y_i = t_i - c_i$。
+    *   Likelihood Contribution: $f(y_i) = h(y_i) S(y_i)$
+*   **未转化样本 (Censored)**: 截止观测时刻 $o_i$ 仍未转化，持续时间 $e_i = o_i - c_i$。
+    *   Likelihood Contribution: $P(T > e_i) = S(e_i)$
+
+**损失函数 (Negative Log-Likelihood)**:
+$$ L = - \sum_{i \in \text{observed}} \log(h(y_i) S(y_i)) - \sum_{j \in \text{censored}} \log(S(e_j)) $$
+
+通过优化该 Loss，模型可以同时学习 CVR（是否转化）和 CTCVR（何时转化），从而无偏地利用实时流数据。
 
 
 ##### **Memory 是重要组成部分**
