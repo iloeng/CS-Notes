@@ -123,6 +123,13 @@
   * **Milvus**: 开源向量数据库，同时有云服务 https://milvus.io/
     * 性能优化较多
   * Weaviate: 开源向量数据库，同时有云服务 https://weaviate.io/
+    * **Multi-vector Support (ColBERT/ColPali)**: 
+        * Weaviate v1.29+ 正式支持生产级多向量检索。
+        * **量化方案**: 提供 Binary/Scalar Quantization，大幅降低多向量的存储开销（e.g. 25KB -> 生产可用）。
+        * **MUVERA Encoding**:
+            * Multi-Vector Retrieval via Fixed Dimensional Encodings.
+            * 将多向量编码为单个固定维度的向量，比单纯量化更激进的压缩策略，用于平衡精度与资源。
+            * [Docs: MUVERA Encoding](https://docs.weaviate.io/weaviate/configuration/compression/multi-vectors#muvera-encoding)
   * Qdrant: 开源向量数据库，同时有云服务 https://qdrant.tech/
   * PGVector: Postgres 的开源向量检索引擎 https://github.com/pgvector/pgvector
   * RediSearch: Redis 的开源向量检索引擎 https://github.com/RediSearch/RediSearch
@@ -262,17 +269,18 @@
     * complex reasoning across multiple evidence graphs grounded on KGs
       * MindMap
 
-### Embedding模型
+### Embedding 模型
+
+#### 训练原理
 
 * 向量模型怎么训练：
-
   * 构建相关（正例）与不相关（负例）的句子对儿样本
-
   * 训练双塔式模型，让正例间的距离小，负例间的距离大
-
   * https://www.sbert.net/
 
-* OpenAI 新发布的两个 Embedding 模型
+#### 典型模型
+
+* **OpenAI Embeddings**
   * text-embedding-3-large、text-embedding-3-small
   * 特点：**越大越准、越小越快**
     * 支持自定义的缩短向量维度，从而在几乎不影响最终效果的情况下降低向量检索与相似度计算的复杂度
@@ -281,15 +289,50 @@
     * https://arxiv.org/abs/2205.13147 Matryoshka Representation Learning
   * ![mteb](./AI-Applied-Algorithms/mteb.png)
 
-* **豆包向量模型 (Doubao-Embedding)**
-  * 在 CMTEB 中文文本向量评测榜单上，以 75.62 高分刷新榜单 SOTA。
-  * 在多模态评测榜单 MMEB_v2 中，图片、视频向量化任务双双登顶 SOTA。
-    * MMEB_v2 Image 榜单：77.78 分，领先第二名 5.6 分。
-    * MMEB_v2 Video 榜单：大幅领先第二名 20.1 分。
+* **Doubao Embeddings**
+  * **豆包向量模型 (Doubao-Embedding)**
+    * 在 CMTEB 中文文本向量评测榜单上，以 75.62 高分刷新榜单 SOTA。
+    * 在多模态评测榜单 MMEB_v2 中，图片、视频向量化任务双双登顶 SOTA。
+      * MMEB_v2 Image 榜单：77.78 分，领先第二名 5.6 分。
+      * MMEB_v2 Video 榜单：大幅领先第二名 20.1 分。
+  * **豆包重排模型 (Doubao-Rerank)**
+    * 纯文本任务：在 CMTEB 中文文本向量评测榜单上，以 79.00 高分超过其他 Rerank 模型。
+    * 多模态任务：在 ViDoRe V1/V2、MMEB V1 中均取得榜单第 1 名。
 
-* **豆包重排模型 (Doubao-Rerank)**
-  * 纯文本任务：在 CMTEB 中文文本向量评测榜单上，以 79.00 高分超过其他 Rerank 模型。
-  * 多模态任务：在 ViDoRe V1/V2、MMEB V1 中均取得榜单第 1 名。
+* **Jina Embeddings (v3 & ColBERT)**
+    * **Jina Embeddings v3**:
+        * **LoRA Adapters**: 针对不同任务（Retrieval, Clustering, Classification 等）动态切换 Adapter，实现 Task-specific 优化。
+        * **8192 Context**: 支持超长上下文（ALiBi），适合长文档检索。
+        * **Matryoshka Representation**: 支持弹性输出维度（如 1024->128），灵活平衡存储与精度。
+    * **Jina ColBERT**:
+        * **Late Interaction**: 采用 Multi-vector (MaxSim) 机制，保留细粒度交互信息。
+        * **Integration**: 常作为 Reranker 或 High-precision Retrieval 阶段使用。
+
+* **Qwen-3 Embedding**
+    * [arXiv:2506.05176](https://arxiv.org/pdf/2506.05176)
+    * **核心特性**:
+        * **Multi-stage Training**: 基于合成数据（Synthetic Data）的多阶段训练策略。
+        * **InfoNCE Loss**: 采用对比损失最大化正样本相似度，挖掘 Hard Negatives。
+        * **Model Merging**: 引入模型合并技术提升泛化能力。
+    * **架构**: 在输入序列末尾添加 `[EOS]`，取其 hidden state 作为 embedding。
+    * ![image-20250708163208666](./AI-Applied-Algorithms/image-20250708163208666.png)
+
+#### 进阶技术
+
+##### **Instruction-Tuned & Task-Aware Retrieval**
+
+* 传统 Embedding 模型通常只能处理语义相似度，缺乏对用户意图的显式建模。
+* **TART (Task-aware Retrieval with Instructions)**:
+    * 提出了一种新的范式：Retrieval with instructions。显式建模用户的 Intent。
+    * **BERRI 数据集**: 收集了 ~40 个不同领域的检索数据集，并由专家标注了 diverse instructions。
+    * ![image-20241210015507819](./AI-Applied-Algorithms/image-20241210015507819.png)
+    * **模型架构**: Dual-encoder，将 Instruction 和 Query 拼接后输入。通过 Cross-encoder 挖掘 Hard Negatives。
+    * **Hard Negatives**:
+        * ![image-20241210015627115](./AI-Applied-Algorithms/image-20241210015627115.png)
+    * ![image-20241210014430460](./AI-Applied-Algorithms/image-20241210014430460.png)
+    * [Ref: TART GitHub](https://github.com/facebookresearch/tart)
+
+#### 开源工具
 
 * 开源库：
   * https://github.com/FlagOpen/FlagEmbedding
@@ -1372,7 +1415,7 @@ https://github.com/OpenBMB/XAgent
   * 针对不同场景实现不同的文件系统，再串联到一个大平台上。
   * Memory 可以通过文件夹（如 long_term, short_term）来组织。
   * 消息传递用 QueueFS
-`cat context.txt | llm > output.txt && exec action.sh`
+  `cat context.txt | llm > output.txt && exec action.sh`
 
 ### 火山引擎 MineContext
 
@@ -2103,40 +2146,66 @@ $$ L = - \sum_{i \in \text{observed}} \log(h(y_i) S(y_i)) - \sum_{j \in \text{ce
 
 ###  搜索算法
 
-#### Hybrid Search
+#### Hybrid Search (多路召回与融合检索)
 
-* Hybrid search is a combination of full text and vector queries that execute against a search index that **contains both searchable plain text content and generated embeddings**. For query purposes, hybrid search is:
-  * A single query request that includes both `search` and `vectors` query parameters
-  * Executing in parallel
-  * With merged results in the query response, scored using Reciprocal Rank Fusion (RRF)
-* 背景：
-  * 实际生产中，传统的关键字检索（稀疏表示）与向量检索（稠密表示）各有优劣。
-    * 举个具体例子，比如文档中包含很长的专有名词，关键字检索往往更精准而向量检索容易引入概念混淆。
-    * e.g. 在医学中“小细胞肺癌”和“非小细胞肺癌”是两种不同的癌症
-  * 很多向量数据库都支持混合检索，比如 [Weaviate](https://weaviate.io/blog/hybrid-search-explained)、[Pinecone](https://www.pinecone.io/learn/hybrid-search-intro/) 等
-  
-* [Relevance scoring in hybrid search using Reciprocal Rank Fusion (RRF)](https://learn.microsoft.com/en-us/azure/search/hybrid-search-ranking)
-  * Kv search (BM25)
-  * Vector search (HNSW)
-  * RRF: $rrf(d)=\sum_{a\in A}\frac{1}{k+rank_a(d)}$
+*   **核心定义**
+    *   **Hybrid Search**：一种结合全文检索（Keyword-based）和向量检索（Vector-based）的融合策略。它在一个搜索索引中同时利用**可搜索的纯文本内容**和**生成的 Embeddings**。
+    *   **多路召回 (Multi-channel Recall)**：利用多种检索方法（视角）从庞大数据集中检索信息，确保召回的全面性（Recall）。除了关键字和向量，还可以扩展到知识图谱索引、树状摘要索引等。
 
-* [VantageDiscovery的电商搜索实践](https://www.vantagediscovery.com/post/compound-ai-search-where-keywords-and-vectors-are-just-the-beginning)
+*   **背景与动机**
+    *   **互补优势**：传统的关键字检索（稀疏表示）与向量检索（稠密表示）各有优劣。
+        *   **关键字 (BM25)**：擅长精确匹配，特别是包含专有名词、产品型号或精确短语的查询。
+            *   *e.g. 在医学中“小细胞肺癌”和“非小细胞肺癌”是两种不同的癌症，向量检索容易混淆，而关键字检索能精确区分。*
+        *   **向量 (HNSW/Embedding)**：擅长语义理解，处理模糊查询、同义词或跨语言检索。
+    *   **融合必要性**：单一索引难以应对复杂查询。融合检索结合多种方法，利用排序算法重排，弥补单一索引不足。
 
-  * 高级能力
-    * **Intelligent Weighting**: Dynamically adjust the importance of different search factors based on business goals or seasonal priorities.
-    * **Flexible Matching Criteria**: Find relevant results even with partial query matches, ensuring customers always find suitable products.
-    * **Contextual Semantic Adjustment**: Control the degree of semantic interpretation based on product categories or query types, optimizing for both precision and recall.
-    * **Category-Specific Models**: Utilize different AI models for various product types, ensuring specialized understanding across diverse catalogs.
+*   **技术实现与融合策略**
+    *   **并行检索**：单次查询请求同时包含 `search` (文本) 和 `vectors` (向量) 参数，并行执行。
+    *   **融合算法 (Fusion Algorithms)**：
+        *   **RRF (Reciprocal Rank Fusion)**：一种无需归一化分数的简单高效算法，通过倒数排名融合结果。
+            *   公式：$rrf(d)=\sum_{a\in A}\frac{1}{k+rank_a(d)}$
+        *   **加权融合 (Intelligent Weighting)**：根据业务目标或查询类型，动态调整不同路（如关键字 vs 向量）的权重。
+    *   **高级融合策略**：
+        *   **Query Rewrite & Expansion**：将输入问题扩展为多种表达形式分别检索（LLM实现或 `QueryTransform`），再对结果重排。
+        *   **递归分层检索 (Recursive Retrieval)**：类似找书过程（出版社->简介->目录->章节），在不同层次构建节点和检索器，建立层级链接，自动向下递归探索。相比扁平检索，能更精准定位细节。
+        *   **复合方案**：同时结合问题扩展和多种索引扩展（向量、关键词、KG等）。
 
-  * Imagine a customer searching for a "cozy blue sweater for a winter wedding." A compound AI system handles this complex query by:
-    * Analyzing intent: identifying style, color, item, and occasion.
-    * Expanding context: considering related concepts like "formal knitwear" or "elegant cold-weather attire."
-    * Performing semantic search using advanced embeddings.
-    * Conducting traditional keyword search in parallel.
-    * Blending results, prioritizing wedding-appropriate items.
-    * Returning a curated selection of relevant products, including complementary accessories.
-  * https://docs.vantagediscovery.com/docs/search-more-like-these-tm#example-soft-chair--item-27--two-pinterest-images
-    * ![more-like-these-overview](./AI-Applied-Algorithms/more-like-these-overview.webp)
+*   **实践案例：电商搜索 (VantageDiscovery)**
+    *   **场景**：用户搜索 *"cozy blue sweater for a winter wedding"*。
+    *   **Compound AI System 处理流程**：
+        1.  **意图分析 (Intent)**：识别风格、颜色、单品、场合。
+        2.  **上下文扩展 (Context)**：关联概念如 *"formal knitwear"* 或 *"elegant cold-weather attire"*。
+        3.  **多路并行**：执行语义搜索 (Advanced Embeddings) + 传统关键词搜索。
+        4.  **结果融合**：混合结果，优先排序适合婚礼的商品。
+    *   **高级能力**：
+        *   **Flexible Matching Criteria**：部分匹配也能召回相关结果。
+        *   **Category-Specific Models**：不同品类使用不同的 AI 模型。
+    *   https://docs.vantagediscovery.com/docs/search-more-like-these-tm#example-soft-chair--item-27--two-pinterest-images
+        *   ![more-like-these-overview](./AI-Applied-Algorithms/more-like-these-overview.webp)
+
+*   **工具支持**
+    *   很多向量数据库都支持混合检索，比如 [Weaviate](https://weaviate.io/blog/hybrid-search-explained)、[Pinecone](https://www.pinecone.io/learn/hybrid-search-intro/) 等。
+    *   框架支持：LlamaIndex (`QueryFusionRetriever`), LangChain 等。
+
+#### 实验分析：Trade-offs in Hybrid Search
+
+*   **论文**: [Balancing the Blend: An Experimental Analysis of Trade-offs in Hybrid Search (arXiv:2508.01405)](https://arxiv.org/abs/2508.01405)
+*   **核心背景**: 混合检索（Lexical + Semantic）已成主流，但系统设计面临“准确率-效率-成本”的复杂权衡。该研究首次系统性评估了四种检索范式及其组合在 11 个数据集上的表现。
+*   **四大检索范式**:
+    *   **FTS (Full-Text Search)**: 传统全文检索（BM25），擅长精确匹配。
+    *   **SVS (Sparse Vector Search)**: 学习型稀疏检索（如 SPLADE），弥补词汇不匹配。
+    *   **DVS (Dense Vector Search)**: 稠密向量检索（Bi-encoder），擅长语义泛化。
+    *   **TenS (Tensor Search)**: 多向量 Late Interaction（如 ColBERT），精度最高但开销最大。
+*   **关键发现 (Key Findings)**:
+    1.  **"Weakest Link" 现象**: 在融合（Fusion）时，引入一个**弱路径**可能会显著拖累整体准确率。
+        *   *Implication*: 融合前必须进行 Path-wise Quality Assessment，宁缺毋滥。
+        *   *Example*: 如果 **DVS** (90分) 已经找到了正确文档，但强行融合一个低质量的 **FTS** (40分)，FTS 带来的大量噪声文档可能会在 RRF 排序中挤占正确文档的位置，导致最终效果 (e.g. 80分) 反而不如单路 DVS。
+    2.  **无万能解 (No One-Size-Fits-All)**: 最优配置高度依赖数据特征和资源限制。
+        *   *Data-driven Trade-offs*: 需要根据 Resource Constraints 动态选择方案。
+    3.  **TRF (Tensor-based Re-ranking Fusion) 的优越性**:
+        *   **定义**: 使用 Tensor Search (ColBERT) 仅作为**重排序器 (Reranker)**，而非全库检索。
+        *   **效果**: 被识别为**High-efficacy Alternative**。它提供了接近 Tensor Search 的高语义精度，但计算和内存成本仅为其一小部分（Fraction of cost）。
+        *   *Recommendation*: 相比于复杂的 Multi-way Fusion，"Simple Recall + Tensor Reranking" 往往是性价比最高的选择。
 
 #### 多目标 LLM Ranking、插件系统
 
@@ -2379,7 +2448,6 @@ Query扩展：根据粒度的不同分为Term粒度和Query粒度两种
 #### Literature Review
 
 * Pseudo-Relevance Feed- back (PRF)
-* Document Expansion
 * 数据集 Evaluation：https://github.com/amazon-science/esci-data
 
 #### A Survey of Query Optimization in Large Language Models

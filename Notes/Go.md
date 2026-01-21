@@ -116,6 +116,38 @@ Go 经常使用**匿名结构体**和**字面量初始化**来组织测试数据
 *   **对比 C++**：类似析构函数（RAII），但更灵活（针对函数作用域而非对象生命周期）。
 *   **对比 Python**：类似 `try...finally` 或 `with` 语句（Context Manager）。
 
+### 错误处理：Panic vs C++ Exception
+
+Go 的 `panic`/`recover` 机制常被拿来与 C++ 的异常机制对比，但二者在设计哲学和使用场景上有本质区别。
+
+#### 1. 设计哲学与使用场景
+*   **C++ (Exception)**：
+    *   **常规错误处理机制**：C++ 中异常被视为处理运行时错误的“标准”方式（尽管 Google Style Guide 等规范可能禁用）。
+    *   **隐式传播**：异常会沿着调用栈自动向上传播，直到遇到 `catch`。
+*   **Go (Panic)**：
+    *   **Crash 机制**：Go 将错误分为 `error`（预期内的、可处理的错误）和 `panic`（不可恢复的程序错误，如空指针引用、数组越界）。
+    *   **显式处理**：绝大多数业务逻辑应通过 `error` 返回值处理。`panic` 仅用于严重 Bug 或库的初始化失败。
+    *   **局限性**：`panic` 只能在当前 Goroutine 中被 `recover`，**无法跨 Goroutine 捕获**（子协程 panic 会导致整个进程崩溃）。
+
+#### 2. 性能开销对比
+*   **Happy Path (无错误发生)**：
+    *   **C++ (Zero-cost)**：在 Itanium ABI 下，进入 `try` 块几乎**零开销**（编译器生成静态跳转表，不执行指令）。
+    *   **Go (defer)**：**低开销**。Go 1.14+ 引入了 Open-coded defer 优化，将 defer 调用内联到函数尾部，开销已大幅降低（~6ns），但在循环中使用 defer 仍有较高开销（涉及堆分配）。
+*   **Sad Path (抛出异常/Panic)**：
+    *   **C++**：**极高开销**。涉及查表（LSDA）、栈展开（Stack Unwinding）、RTTI 类型匹配，可能比正常返回慢 100 倍以上。
+    *   **Go**：**高开销**。涉及 Runtime 停止正常流程、执行 defer 链、打印堆栈信息等。
+
+#### 3. 开发实践建议
+*   **C++**：
+    *   如果在允许使用异常的项目中，利用 RAII（智能指针、`std::lock_guard`）保证资源释放（Stack Unwinding 时会自动调用析构函数）。
+    *   如果在禁用异常的项目（如 Google），必须使用错误码（`absl::Status`）。
+*   **Go**：
+    *   **不要滥用 Panic 做控制流**。
+    *   **必须捕获的情况**：
+        1.  **防止服务崩溃**：在 HTTP Server 的中间件（Middleware）或 RPC 框架入口处使用 `recover`，防止单个请求的 panic 导致整个服务进程退出。
+        2.  **跨语言调用**：在调用 CGO 代码或不可控的第三方库时防御性捕获。
+    *   **资源管理**：不依赖析构函数，而是显式使用 `defer`（如 `defer f.Close()`）。
+
 ### 指针与取地址 (& 符号)
 
 *   **语法**：`&StructName{...}`
@@ -147,6 +179,27 @@ Go 经常使用**匿名结构体**和**字面量初始化**来组织测试数据
     3.  **支持 nil**：指针可以是 `nil`，而结构体值类型不行。
 *   **对比 C++**：等价于 `std::vector<StructName*>`。
 *   **对比 Python**：Python 的 List `[obj1, obj2]` 本质上就是指针列表（引用列表）。
+
+### 结构体标签与可选字段 (Struct Tags & Optional Fields)
+
+在定义配置结构体时，使用指针类型来处理可选参数是一种常见模式。
+
+```go
+type RecallStrategyConfig struct {
+    Strategy *string  `json:"strategy"` // 策略: "mean" or "rrf"
+    Alpha    *float64 `json:"alpha"`    // 衰减因子 (Decay factor)
+    RRFK     *int     `json:"rrf_k"`    // RRF 常数 K
+}
+```
+
+*   **字段定义三要素**：
+    1.  **字段名 (`Strategy`)**：必须**首字母大写**（Exported），否则 JSON 库无法通过反射访问该字段，解析时会忽略。
+    2.  **类型 (`*string`)**：字段的数据类型。
+    3.  **标签 (`json:"strategy"`)**：Struct Tag，指示 `encoding/json` 库将 JSON 对象中的键 `"strategy"` 映射到此字段。如果不写标签，默认匹配字段名（不区分大小写）。
+
+*   **指针类型的意义**：
+    *   **区分零值**：如果是值类型（如 `int`），当 JSON 中缺少该字段时会默认为 `0`，无法区分是“用户指定了 0”还是“用户未指定”。
+    *   **三态逻辑**：使用指针（`*int`）可以表达：存在且有值、存在且为零值、不存在（`nil`）。
 
 ## 并发编程 (Concurrency)
 

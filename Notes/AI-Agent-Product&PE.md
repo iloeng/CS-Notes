@@ -522,6 +522,13 @@ TODO
 
 https://manus.im/app
 
+*   **2025-2026 行业回顾与 Manus 访谈**：
+    *   **R1 爆火原因**：开源、思考过程可见 (CoT)、以及一个（至今为止都）非常简陋的 APP。
+    *   **关于“套壳” (Wrapper)**：
+        *   **安迪比尔定律 (Andy and Bill's Law)**：硬件提高的性能，很快被软件消耗掉。套壳本身毫无问题，是商业和技术最正常的行为。
+        *   **分工与价值**：微软不用自己造 CPU（Intel），NV 不用亲自去无尘间操作光刻机（台积电）。Claude 也没涉足 IDE，但这不妨碍 Cursor 成为值得尊敬的公司。
+        *   **核心**：商业模式的本质在于创造价值，而非必须全栈自研。
+
 ### HiAgent
 
 ![image-20250616205439328](./AI-Agent-Product&PE/image-20250616205439328.png)
@@ -555,6 +562,19 @@ https://lingowhale.com/topics
 
 
 
+
+
+### 行业思考 & 文化
+
+*   **做技术的人，谦逊而不谦卑 (Humble but not Submissive)**
+    *   **圈层文化差异**：
+        *   **Infra 圈**：倾向于“低声下气”，多为自嘲。
+        *   **应用圈**：倾向于“趾高气昂”，往往过度肯定自己。
+        *   **理想状态**：保持谦逊（Humble）但不谦卑，避免自欺欺人。
+    *   **Agent 领域的反思**：
+        *   **拒绝 Overclaim**：学术界/工业界部分 Agent 工作存在严重的 Overclaim 现象（“在学校挂几面旗旗，让大家看看世界上最没用的研究是什么样的”）。
+        *   **信任与崩塌**：在 AI 时代，实现和验证 Idea 的速度极快。一个团队建立信任很难，但一次 Overclaim 就可能导致信任崩塌。
+        *   **标准**：**Humble, Modest, and Love**. Do not overclaim yourself.
 
 ## 本地开发
 
@@ -1258,6 +1278,22 @@ https://webkul.com/ai-semantic-search-services/
 *   **案例**：业界领先的财务报告分析RAG模型 **Mafin 2.5** 正是基于PageIndex构建，在FinanceBench上实现了98.7%的准确率。
 
 
+
+#### Typesense
+
+> 官网: [https://typesense.org/](https://typesense.org/)
+> 文档: [Recommendations Guide](https://typesense.org/docs/guide/recommendations.html)
+
+*   **定位**：开源、高性能的内存搜索引擎 (In-Memory Search Engine)，定位为 **Algolia 的开源替代品** 和 **Elasticsearch 的易用替代品**。
+*   **核心特点**：
+    *   **极致性能**：基于 C++ 编写，索引全内存存储（磁盘备份），实现 **<50ms** 的即时搜索响应。
+    *   **容错与体验**：内置 **Typo Tolerance**（拼写纠错）、**Geo-Search**（地理位置搜索）、**Faceted Search**（分面搜索）。
+    *   **易用性**：配置简单，无 Schema 负担（Auto-Schema），API 设计开发者友好。
+*   **AI & 推荐能力**：
+    *   **Vector Search**：原生支持向量搜索，可结合 embedding 模型（如 OpenAI, PaLM, Bert）实现语义搜索。
+    *   **Hybrid Search**：支持关键词 + 向量混合搜索，平衡精确匹配与语义理解。
+    *   **Recommendation**：基于向量相似度实现 "More like this" 推荐；结合用户行为向量可实现个性化推荐 (Personalization)。
+    *   **RAG 支持**：常作为 LLM 应用的 Context Retrieval 组件。
 
 #### VantageDiscovery AI Search
 

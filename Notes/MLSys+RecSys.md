@@ -1569,6 +1569,28 @@ $$\hat{X} = X \cdot \text{diag}(s)^{-1}, \quad \hat{W} = \text{diag}(s) \cdot W$
 * 细节techniques：
   * **without quantizing residuals**： F(x) + x，仅对F(x)量化
 
+##### Element-wise Gradient Scaling (EWGS)
+
+> **Network Quantization with Element-wise Gradient Scaling** (Lee et al., 2021)
+
+* **Motivation**:
+    * 在量化感知训练 (QAT) 中，通常使用 Straight-Through Estimator (STE) 来解决量化函数不可导的问题。
+    * **STE 的局限性**: STE 简单地将梯度视为 1（透传），**忽略了权重在量化区间内的具体位置（即量化误差的大小）**。
+        * **无法有效跨越边界**: 无论 $x$ 是在量化中心（误差小）还是在边界边缘（误差大），STE 提供的梯度大小都一样。当优化方向需要 $x$ 跳变到下一个量化级时，STE 的梯度可能不足以推动 $x$ 跨越决策边界，导致其在边缘无效震荡。
+        * **中心稳定性差**: 当 $x$ 已经处于正确的量化级并接近中心时，STE 仍提供全量梯度，容易将 $x$ 推离中心，反而增加了量化噪声。
+* **Method**:
+    * 提出一种基于量化误差自适应调整梯度的机制 **EWGS**。
+    * 梯度缩放公式：
+        $$ g_{in} = g_{out} \cdot (1 + \alpha \cdot \text{sign}(g_{out}) \cdot \text{error}) $$
+        其中 $error = Q(x) - x$。
+    * **机制解析**:
+        * **加速翻转 (Boost)**: 当梯度方向指向“下一个量化区间”（即试图跨越边界）时，梯度被放大，像“助推器”一样帮助权重快速跳出当前状态。
+        * **稳定收敛 (Dampen)**: 当梯度方向指向“当前量化中心”时，梯度被缩小，起到“刹车”作用，使权重稳定在量化中心附近，减小最终误差。
+* **Advantage**:
+    * 相比 STE，EWGS 提供了更准确的梯度估计，提高了训练稳定性和模型收敛速度。
+    * 易于实现，计算开销极小（仅增加了逐元素的乘加操作）。
+
+
 ##### W4A8 + QAT 工程实践
 
 >  [Quantization-Aware Training for Large Language Models with PyTorch](https://pytorch.org/blog/quantization-aware-training/)

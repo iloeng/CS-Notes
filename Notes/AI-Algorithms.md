@@ -2170,22 +2170,6 @@ MagicLens is a cutting-edge, self-supervised image retrieval model designed to h
 
 MagicLens moves beyond the visual similarity limitations of CLIP and Visualized BGE, supporting **open-ended, natural language-driven searches**. It represents a significant leap in the ability to handle complex, contextually rich image queries, making it highly effective and scalable for modern multimodal search applications.
 
-### Qwen-3 Embedding
-
-https://arxiv.org/pdf/2506.05176
-
-* Intro
-  * 基于合成数据的multi-stage训练
-  * 构建高质量合成数据
-  * 引入模型合并（model merging）
-  * 有reranking模型
-* 训练
-  * 在输入序列的末尾添加 [EOS]，使用其最终一层 hidden state 作为 embedding 表示；
-  * **Embedding 模型采用 InfoNCE 对比损失**
-    - InfoNCE loss 的目标是最大化正样本对的相似度，同时最小化负样本对的相似度。
-    - 负样本包括硬负样本、批内负样本等
-    - ![image-20250708163208666](./AI-Algorithms/image-20250708163208666.png)
-
 ## Seed 1.8 通用 Agent 模型
 
 - **简介**：通用 Agent 模型，集搜索、代码与 GUI 能力于一体，原生多模态（图文）输入与界面交互，强调低延迟与高效响应。被评测视为“小号 Gemini”，重回国产第一梯队。
@@ -2409,61 +2393,7 @@ https://github.com/huggingface/peft
 
 ![image-20251002030655684](./AI-Algorithms/image-20251002030655684.png)
 
-#### 指令微调+检索 Task-aware Retrieval with Instructions
 
-> https://github.com/facebookresearch/tart
-
-* Intro
-  * ![image-20241210014430460](./AI-Algorithms/image-20241210014430460.png)
-  * In summary, our contributions are as follows:
-    * Retrieval with instructions, a new formulation
-      to model users’ intent explicitly (Section 3).
-    * BERRI, a new large-scale collection of approximately 40 retrieval datasets in diverse domains with instructions (Section 4).
-    * TART, a task-aware retriever trained on
-      BERRI that advances state of the art on zero-
-      shot and cross-task retrieval (Section 5).
-* 数据
-  * berri 数据集
-    * intent domain unit
-    * ![image-20241210015507819](./AI-Algorithms/image-20241210015507819.png)
-    * https://huggingface.co/datasets/sentence-transformers/embedding-training-data
-  * ERRI (Bank of Explicit RetRieval Instructions), a collection of
-    approximately 40 retrieval datasets with diverse in-
-    structions in a unified format, covering 10 diverse
-    domains. Each task has on average 3.5 diverse
-    instructions annotated by experts, 
-  * 难负例：![image-20241210015627115](./AI-Algorithms/image-20241210015627115.png)
-    * We mine hard negative documents dHD us-
-      ing an off-the-shelf retriever and then **filter out**
-      **false negative documents using an off-the-shelf**
-      **reranker**, following Qu et al. (2021).
-      * ms-marco-MiniLM-L-12-v27
-* 模型
-  * dual-encoder，instruction和query相连
-    * The bi-encoder architecture is
-      known to be less expressive since it only has
-      limited interactions between queries and docu-
-      ments (Khattab and Zaharia, 2020), especially
-      when the training data is limited (Hofstätter et al.,
-      2021). 
-  * cross-encoder做rank
-    * To address this issue, we also explore a
-      cross-encoder architecture (Nogueira and Cho,
-      2019), which computes the relevance between
-      a query and each document by jointly encoding
-      them with cross-attention.
-* Training
-  * 用cross-encoder rank model更准确地挖掘hard negative，给dual model学习
-  * ![image-20241210024754923](./AI-Algorithms/image-20241210024754923.png)
-* 评估
-  * 评测数据集：beir、lotte-pooled
-  * a new evaluation setup, X2-Retrieval
-    * closed performance and pooled performance
-* 结论：
-  * ![image-20241210030107766](./AI-Algorithms/image-20241210030107766.png)
-  * ![image-20241210030310460](./AI-Algorithms/image-20241210030310460.png)
-  * 8.2 Dataset Scale
-  * dual model效果一般(110M，table-3)，猜测需要参数量比较大或者cross-encoder才能学好
 
 
 
